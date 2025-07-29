@@ -30,6 +30,7 @@ from utils import power_constraint
 from utils import get_rates
 from utils import objective_function
 from utils import mu_update
+from utils import lambda_update
 from utils import channel_constraint
 from utils import nuevo_get_rates
 
@@ -52,6 +53,9 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     mu_k = torch.ones((1,1), requires_grad = False)
+# Inicializo el multiplicador de lagrange que me cree
+    lambda_c = torch.ones((1,1), requires_grad=False)
+
     epocs = epocs
 
     pmax = num_channels
@@ -79,6 +83,8 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
     power_constraint_values = []
     loss_values = []
     mu_k_values = []
+# AGREGADO PERO AUN NO HAGO QUE SE GUARDEN
+    lambda_c_values = []
     normalized_psi_values = []
     channel_constraint_values = []
 
@@ -91,16 +97,34 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
 
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
             psi = psi.squeeze(-1)
-            psi = psi.view(batch_size, -1)
-            psi = psi.unsqueeze(-1)
+            # psi = psi.view(batch_size, -1)
+# AGREGADO: sirve para la multidimensionalidad para el onehot (CREO)
+            psi = psi.view(batch_size, num_channels, 4)  # suponiendo num_channels = m transmisores
+# Creo que no va ahora
+            # psi = psi.unsqueeze(-1)
             
-            normalized_psi = (torch.tanh(psi)*(0.99 - 0.01) + 1)/2
+            # normalized_psi = (torch.tanh(psi)*(0.99 - 0.01) + 1)/2
+            # 
+# Pq ahora queremos una prob que sume 1 a lo largo de las distintas opciones. (probs)
+            normalized_psi = torch.softmax(psi, dim=-1)  # shape: [batch_size, num_channels, 4]
             normalized_psi_values.append(normalized_psi[0,:,:].squeeze(-1).detach().numpy())
 
-            normalized_phi = torch.bernoulli(normalized_psi)
-            log_p = normalized_phi * torch.log(normalized_psi) + (1 - normalized_phi) * torch.log(1 - normalized_psi)
+            # normalized_phi = torch.bernoulli(normalized_psi)
+# Tomo una muestra de la distribucion de antes (como una bernoulli pero que tiene en cuenta todas las dim)
+            dist = torch.distributions.Categorical(normalized_psi)
+            actions = dist.sample()  # shape: [batch_size, num_channels], valores en {0,1,2,3}
+
+            
+
+            # log_p = normalized_phi * torch.log(normalized_psi) + (1 - normalized_phi) * torch.log(1 - normalized_psi)
+# Se adapta para que el log sea por canal (espero que este bien)
+            log_p = dist.log_prob(actions)  # shape: [batch_size, num_channels]
             log_p_sum = torch.sum(log_p, dim=1)
-            phi = normalized_phi * p0
+
+            # phi = normalized_phi * p0
+# Se supone que asi generamos la matriz one hot de tamaño batch*m*c
+            phi = torch.nn.functional.one_hot(actions, num_classes=4).float()  # (batch, m, 4)
+            phi = phi*p0
 
             power_constr = power_constraint(phi, pmax)
             power_constr_mean = torch.mean(power_constr, dim = 0)
@@ -116,8 +140,13 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
             sum_rate_mean = torch.mean(sum_rate, dim = 0)
             
             mu_k = mu_update(mu_k, power_constr, eps)
-            
-            cost = sum_rate + (power_constr * mu_k)
+# Para el multiplicador de la condicion de canal (supongo que el es podria ser diferente)
+            lambda_c = lambda_update(lambda_c, channel_constr, eps)
+
+            # cost = sum_rate + (power_constr * mu_k)
+# Uso un costo combinado de ambos parametros
+            cost = sum_rate + (power_constr * mu_k) + (channel_constr * lambda_c)
+
 
             loss = cost * log_p_sum
             loss_mean = torch.mean(loss, dim = 0)

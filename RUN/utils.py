@@ -191,6 +191,16 @@ def mu_update(mu_k, power_constr, eps):
     mu_k = torch.max(mu_k, torch.tensor(0.0))
     return mu_k
 
+# NUEVO: para el costo de la condicion de canal
+def lambda_update(lambda_k, channel_constr, eps_lambda):
+# POR AHORA LO DEJO SENCILLO
+    # lambda_k = lambda_k.detach()
+    # lambda_k_update = eps_lambda * torch.mean(channel_constr, dim=0)
+    # lambda_k = lambda_k + lambda_k_update
+    # lambda_k = torch.max(lambda_k, torch.tensor(0.0))  # Para mantenerlo ≥ 0
+    return lambda_k
+
+
 def get_rates(phi, channel_matrix_batch, sigma):
     phi = torch.squeeze(phi, dim = 2)
     numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
