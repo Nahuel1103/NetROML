@@ -111,7 +111,7 @@ def transform_matrix(adj_matrix, all = True):
 def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, building_id=990):
     
     band = ['2_4', '5']
-    path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    path = '/Users/mauriciovieirarodriguez/project/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
 
     if (train):
         file_name = 'train_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
@@ -141,7 +141,7 @@ def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, buil
 def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
-    path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    path = '/Users/mauriciovieirarodriguez/project/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
     file_name = 'synthetic_graphs.pkl'
     with open(path + file_name, 'rb') as archivo:
         graphs = pickle.load(archivo)
@@ -182,6 +182,7 @@ def power_constraint(phi, pmax):
 def channel_constraint(phi, p0):
     #phi recibe phi*p0
     sum_phi = torch.sum(phi, dim=1)
+    print("shape: {sum_phi,shape}")
     return (sum_phi - p0)
 
 def mu_update(mu_k, power_constr, eps):
@@ -204,7 +205,7 @@ def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
     phi = torch.squeeze(phi, dim = 2)
     numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
     expanded_phi = phi.unsqueeze(2)
-    denominator = (torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator)*phi.unsqueeze(2)/p0 + sigma
+    denominator = (torch.matmul(channel_matrix_batch.float(), (expanded_phi.float() - numerator)*phi*p0)) + sigma
     rates = torch.log(numerator / denominator + 1)
     return rates
 
