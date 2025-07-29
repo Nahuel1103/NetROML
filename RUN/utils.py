@@ -182,7 +182,6 @@ def power_constraint(phi, pmax):
 def channel_constraint(phi, p0):
     #phi recibe phi*p0
     sum_phi = torch.sum(phi, dim=1)
-    print("shape: {sum_phi,shape}")
     return (sum_phi - p0)
 
 def mu_update(mu_k, power_constr, eps):
@@ -202,11 +201,49 @@ def get_rates(phi, channel_matrix_batch, sigma):
 
 #LO QUE AGREGAMOS NOSOTROS
 def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
-    phi = torch.squeeze(phi, dim = 2)
-    numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
-    expanded_phi = phi.unsqueeze(2)
-    denominator = (torch.matmul(channel_matrix_batch.float(), (expanded_phi.float() - numerator)*phi*p0)) + sigma
-    rates = torch.log(numerator / denominator + 1)
+    """
+    Compute rates based on the formulation:
+    r_i = E[ log(1 + |h_ii|^2 * p_i / (sigma^2 + sum_{j!=i} |h_ji|^2 * p_j * (p_i / p_0)) ) ]
+    
+    Parameters:
+    - phi: Tensor of shape (batch_size, num_channels, 1) representing binary power allocations (0 or p0)
+    - channel_matrix_batch: Tensor of shape (batch_size, num_channels, num_channels) with channel gains
+    - sigma: Noise variance
+    - p0: Nominal power level per channel
+
+    Returns:
+    - rates: Tensor of shape (batch_size, num_channels, 1) with rates for each transmitter
+    """
+    phi = torch.squeeze(phi, dim=2)  # Shape: (batch_size, num_channels)
+    
+    # Compute total power p_i for each transmitter i: sum over channels
+    p_i = torch.sum(phi, dim=1, keepdim=True)  # Shape: (batch_size, 1)
+    
+    # Extract diagonal channel gains |h_ii|^2
+    h_ii = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)  # Shape: (batch_size, num_channels)
+    
+    # Numerator: |h_ii|^2 * p_i
+    numerator = h_ii * p_i  # Shape: (batch_size, num_channels) via broadcasting
+    numerator = torch.unsqueeze(numerator, dim=2)  # Shape: (batch_size, num_channels, 1)
+    
+    # Compute interference: sum_j |h_ji|^2 * p_j
+    expanded_phi = phi.unsqueeze(2)  # Shape: (batch_size, num_channels, 1)
+    interference = torch.matmul(channel_matrix_batch.float(), expanded_phi.float())  # Shape: (batch_size, num_channels, 1)
+    
+    # Subtract self-interference: |h_ii|^2 * p_i
+    interference = interference - numerator  # Shape: (batch_size, num_channels, 1)
+    
+    # Scale interference by p_i / p_0
+    scaling_factor = p_i / p0  # Shape: (batch_size, 1)
+    # Ensure scaling_factor broadcasts correctly over num_channels
+    interference = interference * scaling_factor.unsqueeze(1)  # Shape: (batch_size, num_channels, 1)
+    
+    # Total denominator: sigma^2 + interference
+    denominator = interference + sigma
+    
+    # Compute rates: log(1 + numerator / denominator)
+    rates = torch.log(1 + numerator / (denominator + 1e-10))  # Add small constant for stability
+    
     return rates
 
 

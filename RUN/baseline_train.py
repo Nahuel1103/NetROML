@@ -179,7 +179,7 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
 
 
 
-    path = '/Users/nahuelpineyro/NetROML/results/'+str(banda[b5g])+'_'+str(building_id)+'/torch_results/'
+    path = '/Users/mauriciovieirarodriguez/project/NetROML/results/'+str(banda[b5g])+'_'+str(building_id)+'/torch_results/'
     file_name = path + 'baseline'+str(baseline)+'_'+str(epocs)+'.pkl'
     with open(file_name, 'wb') as archivo:
         pickle.dump(objective_function_values, archivo)
