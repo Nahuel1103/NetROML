@@ -111,7 +111,7 @@ def transform_matrix(adj_matrix, all = True):
 def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, building_id=990):
     
     band = ['2_4', '5']
-    path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    path = '/home/bruno/Proyecto/wireless-learning-main/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
 
     if (train):
         file_name = 'train_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
@@ -141,7 +141,7 @@ def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, buil
 def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
-    path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    path = '/home/bruno/Proyecto/wireless-learning-main/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
     file_name = 'synthetic_graphs.pkl'
     with open(path + file_name, 'rb') as archivo:
         graphs = pickle.load(archivo)
