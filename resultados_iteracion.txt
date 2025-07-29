@@ -1,0 +1,6 @@
+Shape phi: torch.Size([64, 5])
+Shape expanded_phi: torch.Size([64, 5, 1])
+Shape numerator: torch.Size([64, 5, 1])
+Shape denominator: torch.Size([64, 5, 1])
+Shape rates: torch.Size([64, 5, 1])
+

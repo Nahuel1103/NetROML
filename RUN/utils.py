@@ -200,14 +200,22 @@ def get_rates(phi, channel_matrix_batch, sigma):
     return rates
 
 #LO QUE AGREGAMOS NOSOTROS
+# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
+#     phi = torch.squeeze(phi, dim = 2)
+#     numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
+#     expanded_phi = phi.unsqueeze(2)
+#     denominator = (torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator)*phi.unsqueeze(2)/p0 + sigma
+#     rates = torch.log(numerator / denominator + 1)
+#     return rates
+
+
 def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
-    phi = torch.squeeze(phi, dim = 2)
+    phi = torch.squeeze(phi, dim = 2) #(64,5,1)
     numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
     expanded_phi = phi.unsqueeze(2)
-    denominator = (torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator)*phi.unsqueeze(2)/p0 + sigma
+    denominator = (torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator)*expanded_phi/p0 + sigma
     rates = torch.log(numerator / denominator + 1)
     return rates
-
 
 
 # $$

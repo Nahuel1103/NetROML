@@ -36,7 +36,7 @@ from utils import nuevo_get_rates
 from utils import graphs_to_tensor_synthetic
 
 
-def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
+def run(building_id=800, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
@@ -94,34 +94,50 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
             psi = psi.view(batch_size, -1)
             psi = psi.unsqueeze(-1)
             
+            # normalized_psi = (torch.tanh(psi)*(0.99 - 0.01) + 1)/2
+            # normalized_psi_values.append(normalized_psi[0,:,:].squeeze(-1).detach().numpy())
+            # normalized_phi = torch.bernoulli(normalized_psi)
+            # log_p = normalized_phi * torch.log(normalized_psi) + (1 - normalized_phi) * torch.log(1 - normalized_psi)
+            # log_p_sum = torch.sum(log_p, dim=1)
+            # phi = normalized_phi * p0
+
             normalized_psi = (torch.tanh(psi)*(0.99 - 0.01) + 1)/2
             normalized_psi_values.append(normalized_psi[0,:,:].squeeze(-1).detach().numpy())
 
-            normalized_phi = torch.bernoulli(normalized_psi)
+            # --- NUEVO: solo un canal activo por transmisor ---
+            probs = normalized_psi.squeeze(-1)  # [batch_size, num_channels]
+            probs = probs / probs.sum(dim=1, keepdim=True)  # Normalizar para que sumen 1
+            selected_idx = torch.multinomial(probs, num_samples=1)  # [batch_size, 1]
+            normalized_phi = torch.zeros_like(probs)
+            normalized_phi.scatter_(1, selected_idx, 1)
+            normalized_phi = normalized_phi.unsqueeze(-1)  # [batch_size, num_channels, 1]
+            # -----------------------------------------------
+
             log_p = normalized_phi * torch.log(normalized_psi) + (1 - normalized_phi) * torch.log(1 - normalized_psi)
             log_p_sum = torch.sum(log_p, dim=1)
             phi = normalized_phi * p0
+
 
             power_constr = power_constraint(phi, pmax)
             power_constr_mean = torch.mean(power_constr, dim = 0)
 
             channel_constr = channel_constraint(phi, p0)
             channel_constr_mean = torch.mean(channel_constr, dim = 0)
-            
+
             # rates = get_rates(phi, channel_matrix_batch, sigma)
             rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=p0)
 
             sum_rate = objective_function(rates)
 
             sum_rate_mean = torch.mean(sum_rate, dim = 0)
-            
-            mu_k = mu_update(mu_k, power_constr, eps)
-            
-            cost = sum_rate + (power_constr * mu_k)
+
+            mu_k = mu_update(mu_k, channel_constr, eps)
+
+            cost = sum_rate + (channel_constr * mu_k)
 
             loss = cost * log_p_sum
             loss_mean = torch.mean(loss, dim = 0)
-        
+
             loss_mean.backward()
             optimizer.step()
 
@@ -137,7 +153,7 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
     for name, param in gnn_model.named_parameters():
         if param.requires_grad:
             print(name, param.data)
-    
+
     # path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=normalized_psi, normalized_psi_values=normalized_psi_values, num_layers=num_layers, K=K, batch_size=batch_size, epocs=epocs, rn=rn, rn1=rn1, eps=eps, mu_lr=mu_lr,
     #                 objective_function_values=objective_function_values, power_constraint_values=power_constraint_values,
     #                 loss_values=loss_values, mu_k_values=mu_k_values, baseline=False, synthetic=synthetic, train=True)
@@ -190,7 +206,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
-    parser.add_argument('--synthetic', type=int, default=1)
+    parser.add_argument('--synthetic', type=int, default=0)
     
     args = parser.parse_args()
     
