@@ -30,7 +30,7 @@ from utils import power_constraint
 from utils import get_rates
 from utils import objective_function
 from utils import mu_update
-from utils import channel_constraint
+# from utils import channel_constraint
 from utils import nuevo_get_rates
 
 from utils import graphs_to_tensor_synthetic
@@ -101,28 +101,24 @@ def run(building_id=800, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
             # log_p_sum = torch.sum(log_p, dim=1)
             # phi = normalized_phi * p0
 
-            normalized_psi = (torch.tanh(psi)*(0.99 - 0.01) + 1)/2
-            normalized_psi_values.append(normalized_psi[0,:,:].squeeze(-1).detach().numpy())
+
+            probs = torch.softmax(psi.squeeze(-1), dim=1)  # [batch_size, num_channels]
+            normalized_psi_values.append(probs[0, :].detach().numpy())
 
             # --- NUEVO: solo un canal activo por transmisor ---
-            probs = normalized_psi.squeeze(-1)  # [batch_size, num_channels]
-            probs = probs / probs.sum(dim=1, keepdim=True)  # Normalizar para que sumen 1
             selected_idx = torch.multinomial(probs, num_samples=1)  # [batch_size, 1]
             normalized_phi = torch.zeros_like(probs)
             normalized_phi.scatter_(1, selected_idx, 1)
             normalized_phi = normalized_phi.unsqueeze(-1)  # [batch_size, num_channels, 1]
             # -----------------------------------------------
 
-            log_p = normalized_phi * torch.log(normalized_psi) + (1 - normalized_phi) * torch.log(1 - normalized_psi)
+            log_p = normalized_phi.squeeze(-1) * torch.log(probs + 1e-10)  # Evitar log(0)
             log_p_sum = torch.sum(log_p, dim=1)
             phi = normalized_phi * p0
 
 
             power_constr = power_constraint(phi, pmax)
             power_constr_mean = torch.mean(power_constr, dim = 0)
-
-            channel_constr = channel_constraint(phi, p0)
-            channel_constr_mean = torch.mean(channel_constr, dim = 0)
 
             # rates = get_rates(phi, channel_matrix_batch, sigma)
             rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=p0)
@@ -131,9 +127,9 @@ def run(building_id=800, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
 
             sum_rate_mean = torch.mean(sum_rate, dim = 0)
 
-            mu_k = mu_update(mu_k, channel_constr, eps)
+            mu_k = mu_update(mu_k, power_constr, eps)
 
-            cost = sum_rate + (channel_constr * mu_k)
+            cost = sum_rate + (power_constr * mu_k)
 
             loss = cost * log_p_sum
             loss_mean = torch.mean(loss, dim = 0)
@@ -148,7 +144,6 @@ def run(building_id=800, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
                 mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
-                channel_constraint_values.append(channel_constr_mean.detach().numpy())
 
     for name, param in gnn_model.named_parameters():
         if param.requires_grad:
@@ -161,7 +156,7 @@ def run(building_id=800, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
     path = plot_results(
             building_id=building_id,
             b5g=b5g,
-            normalized_psi=normalized_psi,
+            normalized_psi=probs,
             normalized_psi_values=normalized_psi_values,
             num_layers=num_layers,
             K=K,

@@ -179,10 +179,10 @@ def power_constraint(phi, pmax):
     return (sum_phi - pmax)
 
 # LO QUE AGREGAMOS NOSOTROS
-def channel_constraint(phi, p0):
-    #phi recibe phi*p0
-    sum_phi = torch.sum(phi, dim=1)
-    return (sum_phi - p0)
+# def channel_constraint(phi, p0):
+#     #phi recibe phi*p0
+#     sum_phi = torch.sum(phi, dim=1)
+#     return (sum_phi - p0)
 
 def mu_update(mu_k, power_constr, eps):
     mu_k = mu_k.detach()

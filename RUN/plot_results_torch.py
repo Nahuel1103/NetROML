@@ -141,7 +141,7 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         plt.close()
 
     if channel_constraint_values is not None:
-        plt.figure()
+        plt.figure(figsize=(16,9))
         plt.plot(channel_constraint_values)
         plt.title('Channel Constraint')
         plt.xlabel('Iteración')
