@@ -4,7 +4,7 @@ import os
 import torch
 
 
-def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num_layers=5, K=3, batch_size=64, epocs = 100, rn=100, rn1=100, eps=5e-5, mu_lr=1e-4, objective_function_values=[], power_constraint_values=[],channel_constraint_values=None, loss_values=[],
+def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num_layers=5, K=3, batch_size=64, epocs = 100, rn=100, rn1=100, eps=5e-5, mu_lr=1e-4, objective_function_values=[], power_constraint_values=[], loss_values=[],
                  mu_k_values=[], baseline=0, mark=0, train=True):
     """
     Function that receives the values for different parameters resulting from some training
@@ -140,17 +140,6 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         plt.savefig(image_path)
         plt.close()
 
-    if channel_constraint_values is not None:
-        plt.figure()
-        plt.plot(channel_constraint_values)
-        plt.title('Channel Constraint')
-        plt.xlabel('Iteración')
-        plt.ylabel('Restricción de canal')
-        plt.grid()
-        image_name = 'channel_constrain.png'
-        image_path = os.path.join(path, image_name)
-        plt.savefig(image_path)
-        plt.close()
 
 
     normalized_psi= torch.mean(normalized_psi, dim=0)

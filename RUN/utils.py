@@ -108,7 +108,7 @@ def transform_matrix(adj_matrix, all = True):
                     H[i,j] = adj_matrix[nodos_tx[i], nodos_rx[receptor_j]]
         return H
     
-def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, building_id=990):
+def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, building_id=990):
     
     band = ['2_4', '5']
     path = '/Users/mauriciovieirarodriguez/project/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
@@ -124,7 +124,7 @@ def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, buil
             graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
-    x = torch.zeros((num_channels,num_features))
+    x = torch.zeros((num_links,num_features))
     for graph in graphs:
         adj_matrix = nx.adjacency_matrix(graph, weight = 'Atenuacion')
         adj_matrix = adj_matrix.toarray()
@@ -138,7 +138,7 @@ def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, buil
     return x_tensor, channel_matrix_tensor
 
 
-def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, building_id = 990):
+def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
     path = '/Users/mauriciovieirarodriguez/project/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
@@ -147,7 +147,7 @@ def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, buil
         graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
-    x = torch.zeros((num_channels,num_features)) 
+    x = torch.zeros((num_links,num_features)) 
     for graph in graphs:
         channel_matrix_list.append(torch.tensor(graph))
         x_list.append(x)

@@ -36,25 +36,25 @@ from utils import nuevo_get_rates
 from utils import graphs_to_tensor_synthetic
 
 
-def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
+def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
     mu_lr_str= str(f"{mu_lr:.0e}")
 
     if synthetic:
-        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(num_channels,num_features=1, b5g=b5g, building_id=building_id)
+        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(num_links,num_features=1, b5g=b5g, building_id=building_id)
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
     else:
-        x_tensor, channel_matrix_tensor = graphs_to_tensor(train=True, num_channels=num_channels, num_features=1, b5g=b5g, building_id=building_id)
+        x_tensor, channel_matrix_tensor = graphs_to_tensor(train=True, num_links=num_links, num_features=1, b5g=b5g, building_id=building_id)
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     mu_k = torch.ones((1,1), requires_grad = False)
     epocs = epocs
 
-    pmax = num_channels
+    pmax = num_links
     p0 = 4
 
     sigma = 1e-4
@@ -87,7 +87,7 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
         for batch_idx, data in enumerate(dataloader):
             
             channel_matrix_batch = data.matrix
-            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_channels, num_channels)
+            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links)
 
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
             psi = psi.squeeze(-1)

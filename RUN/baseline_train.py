@@ -20,6 +20,8 @@ from torch_geometric.nn import GCNConv
 import os
 import matplotlib.pyplot as plt
 
+import torch.nn.functional as F
+
 import scipy.io
 
 from plot_results_torch import plot_results
@@ -35,29 +37,29 @@ from utils import nuevo_get_rates
 
 from utils import graphs_to_tensor_synthetic
 
-def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, baseline=1, synthetic=1, rn=100, rn1=100):   
+def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, baseline=1, synthetic=1, rn=100, rn1=100):   
 
     banda = ['2_4', '5']
     if synthetic:
-        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(num_channels,num_features=1, b5g=b5g, building_id=building_id)
+        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(num_links,num_features=1, b5g=b5g, building_id=building_id)
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
     else:
-        x_tensor, channel_matrix_tensor = graphs_to_tensor(train=False, num_channels=num_channels, num_features=1, b5g=b5g, building_id=building_id)
+        x_tensor, channel_matrix_tensor = graphs_to_tensor(train=False, num_links=num_links, num_features=1, b5g=b5g, building_id=building_id)
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     mu_k = torch.ones((1,1), requires_grad = False)
     epocs = epocs
 
-    pmax = num_channels
+    pmax = num_links
     p0 = 4
 
     sigma = 1e-4
 
     input_dim = 1
     hidden_dim = 1
-    output_dim = 1
+    output_dim = 4 # off, ch1, ch2, ch3
     num_layers = num_layers
     dropout = False
     K = K
@@ -84,32 +86,45 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
         for batch_idx, data in enumerate(dataloader):
             
             channel_matrix_batch = data.matrix
-            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_channels, num_channels)
-            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
-            psi = psi.squeeze(-1)
-            psi = psi.view(batch_size, -1)
-            psi = psi.unsqueeze(-1)
+            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) # 64 x 5 x 5
+            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr) # 320 x 4
+            # psi = psi.squeeze(-1)   # 320 x 4
+            psi = psi.view(batch_size, num_links, num_channels+1) # 64 x 5 x 4
+            # psi = psi.unsqueeze(-1) # 64 x 5 x 4 x 1
             
             normalized_psi = torch.sigmoid(psi)*(0.99 - 0.01) + 0.01
             if (baseline==1):
-                normalized_psi = torch.ones((batch_size, num_channels,1)) / 2
+                normalized_psi = torch.ones((batch_size, num_links,1)) / 2
             elif (baseline==2):
-                normalized_psi = torch.ones((batch_size, num_channels,1)) / num_channels
+                normalized_psi = torch.ones((batch_size, num_links,1)) / num_links
 
             normalized_psi_values.append(normalized_psi[0,:,:].squeeze(-1).detach().numpy())
 
-            # Nuestra nueva phi
-            # normalized_phi = torch.bernoulli(torch.full((normalized_psi.shape, num_channels + 1 ), normalized_psi)) 
-            # normalized_phi = torch.bernoulli(normalized_psi.expand(-1, -1, num_channels))  # Expand normalized_psi to match the shape for Bernoulli sampling
+            # #La phi del paper
+            # normalized_phi = torch.bernoulli(normalized_psi)
+            # log_p = normalized_phi * torch.log(normalized_psi) + (1 - normalized_phi) * torch.log(1 - normalized_psi)
+            # log_p_sum = torch.sum(log_p, dim=1)
 
-            #La phi del paper
-            normalized_phi = torch.bernoulli(normalized_psi)
-            log_p = normalized_phi * torch.log(normalized_psi) + (1 - normalized_phi) * torch.log(1 - normalized_psi)
-            log_p_sum = torch.sum(log_p, dim=1)
+            # La phi que usamos nosotros
+            probs = torch.softmax(psi, dim=-1)  # [64, 5, 4]
+            dist = torch.distributions.Categorical(probs=probs)  # distribuciones por usuario
+            actions = dist.sample()            # [64, 5], valores en 0..3
+            one_hot_actions = F.one_hot(actions, num_classes=num_channels + 1).float() # [64, 5, 4]
+            print("one_hot_actions:", one_hot_actions)
+            log_p = dist.log_prob(actions)     # [64, 5]
+            print("log_p:", log_p)
+            log_p_sum = log_p.sum(dim=1)       # [64]
+            print("log_p_sum:", log_p_sum)
+            phi_2 = torch.zeros(batch_size, num_links, num_channels, device=probs.device)  # num_channels=3
+            for ch in range(1, num_channels + 1):
+                mask = (actions == ch)  # [64, 5]
+                phi_2[:, :, ch - 1][mask] = p0
+            
+            # acciones == 0 quedan con phi cero (apagado)
+
             if (baseline==1):
-                normalized_psi = pmax/(p0*num_channels) * torch.ones((64,num_channels,1))
+                normalized_psi = pmax/(p0*num_links) * torch.ones((64,num_links,1))
                 normalized_phi = torch.bernoulli(normalized_psi)
-                # normalized_phi = torch.bernoulli(normalized_psi.expand(-1, -1, num_channels))  # Expand normalized_psi to match the shape for Bernoulli sampling
                 phi = normalized_phi * p0
             elif (baseline==2):
                 phi = normalized_phi * pmax
@@ -120,9 +135,6 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
             power_constr = power_constraint(phi, pmax)
             power_constr_mean = torch.mean(power_constr, dim = 0)
             
-            # Lo que agregamos nosotros
-            channel_constr = channel_constraint(phi, p0)
-            channel_constr_mean = torch.mean(channel_constr, dim = 0)
 
             #rates = get_rates(phi, channel_matrix_batch, sigma,p0=p0)
             rates = nuevo_get_rates(phi, channel_matrix_batch, sigma,p0=p0)
@@ -147,10 +159,6 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
                 mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
-
-                #Lo que agregamos nosotros
-                channel_constraint_values.append(channel_constr_mean.detach().numpy())
-
     
     # path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=normalized_psi, normalized_psi_values=normalized_psi_values, num_layers=num_layers, K=K, batch_size=batch_size, epocs=epocs, rn=rn, rn1=rn1, eps=eps,
     #                 objective_function_values=objective_function_values, power_constraint_values=power_constraint_values,
@@ -171,7 +179,6 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
         eps=eps,
         objective_function_values=objective_function_values,
         power_constraint_values=power_constraint_values,
-        channel_constraint_values=channel_constraint_values,  # <-- NUEVO
         loss_values=loss_values,
         mu_k_values=mu_k_values,
         baseline=baseline
@@ -198,7 +205,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--building_id', type=int, default=990)
     parser.add_argument('--b5g', type=int, default=0)
-    parser.add_argument('--num_channels', type=int, default=5)
+    parser.add_argument('--num_links', type=int, default=5)
+    parser.add_argument('--num_channels', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
     parser.add_argument('--epocs', type=int, default=150)
@@ -212,6 +220,7 @@ if __name__ == '__main__':
     
     print(f'building_id: {args.building_id}')
     print(f'b5g: {args.b5g}')
+    print(f'num_links: {args.num_links}')
     print(f'num_channels: {args.num_channels}')
     print(f'num_layers: {args.num_layers}')
     print(f'k: {args.k}')
@@ -224,7 +233,7 @@ if __name__ == '__main__':
 
     
 
-    run(building_id=args.building_id, b5g=args.b5g, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epocs=args.epocs, eps=args.eps, mu_lr=args.mu_lr, baseline=args.baseline, synthetic=args.synthetic, rn=rn, rn1=rn1)
+    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epocs=args.epocs, eps=args.eps, mu_lr=args.mu_lr, baseline=args.baseline, synthetic=args.synthetic, rn=rn, rn1=rn1)
     print(rn)
     print(rn1)
 
