@@ -178,12 +178,6 @@ def power_constraint(phi, pmax):
     sum_phi = torch.sum(phi, dim=1)
     return (sum_phi - pmax)
 
-# LO QUE AGREGAMOS NOSOTROS
-# def channel_constraint(phi, p0):
-#     #phi recibe phi*p0
-#     sum_phi = torch.sum(phi, dim=1)
-#     return (sum_phi - p0)
-
 def mu_update(mu_k, power_constr, eps):
     mu_k = mu_k.detach()
     mu_k_update = eps * torch.mean(power_constr, dim = 0)
@@ -199,25 +193,10 @@ def get_rates(phi, channel_matrix_batch, sigma):
     rates = torch.log(numerator / denominator + 1)
     return rates
 
-#LO QUE AGREGAMOS NOSOTROS
-# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
-#     phi = torch.squeeze(phi, dim = 2)
-#     numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
-#     expanded_phi = phi.unsqueeze(2)
-#     denominator = (torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator)*phi.unsqueeze(2)/p0 + sigma
-#     rates = torch.log(numerator / denominator + 1)
-#     return rates
-
-
 def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
-    phi = torch.squeeze(phi, dim = 2) #(64,5,1)
+    # phi = torch.squeeze(phi, dim = 2) #(64,5,4) , channel_matrix_batch (64,5,5)
     numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
     expanded_phi = phi.unsqueeze(2)
     denominator = (torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator)*expanded_phi/p0 + sigma
     rates = torch.log(numerator / denominator + 1)
     return rates
-
-
-# $$
-# r_i = \mathbb{E} \left[ \log \left( 1 + \frac{ |h_{ii}|^2 p_i(\mathbf{H}) }{ \sigma^2 + \sum_{j \neq i} |h_{ji}|^2 p_j(\mathbf{H}) \cdot \frac{p_i(\mathbf{H})}{p_0} } \right) \right],
-# $$
