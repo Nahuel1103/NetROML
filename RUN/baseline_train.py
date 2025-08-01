@@ -76,10 +76,9 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
     power_constraint_values = []
     loss_values = []
     mu_k_values = []
-    normalized_psi_values = []
+    probs_values = []
 
-    #Lo que agregamos nosotros
-    channel_constraint_values = []
+
     for epoc in range(epocs):
         print("Epoc number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
@@ -91,13 +90,13 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
             psi = psi.view(batch_size, num_links, num_channels+1) # [64, 5, 4]
             # psi = psi.unsqueeze(-1) # [64, 5, 4, 1]
             
-            normalized_psi = torch.sigmoid(psi)*(0.99 - 0.01) + 0.01
-            if (baseline==1):
-                normalized_psi = torch.ones((batch_size, num_links,1)) / 2
-            elif (baseline==2):
-                normalized_psi = torch.ones((batch_size, num_links,1)) / num_links
+            # normalized_psi = torch.sigmoid(psi)*(0.99 - 0.01) + 0.01
+            # if (baseline==1):
+                # normalized_psi = torch.ones((batch_size, num_links,1)) / 2
+            # elif (baseline==2):
+                # normalized_psi = torch.ones((batch_size, num_links,1)) / num_links
 
-            normalized_psi_values.append(normalized_psi[0,:,:].squeeze(-1).detach().numpy())
+            # normalized_psi_values.append(normalized_psi[0,:,:].squeeze(-1).detach().numpy())
 
             # #La phi del paper
             # normalized_phi = torch.bernoulli(normalized_psi)
@@ -106,11 +105,13 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
 
             # La phi que usamos nosotros
             probs = torch.softmax(psi, dim=-1)  # [64, 5, 4]
+            probs_values.append(probs[2,:,:].detach().numpy())
             dist = torch.distributions.Categorical(probs=probs)  # distribuciones por usuario
             actions = dist.sample()            # [64, 5], valores en 0..3
             # one_hot_actions = F.one_hot(actions, num_classes=num_channels + 1).float() # [64, 5, 4]
             log_p = dist.log_prob(actions)     # [64, 5]
             log_p_sum = log_p.sum(dim=1)       # [64]
+            log_p_sum = log_p_sum.view(batch_size, 1)  # [64, 1]
             phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)  # num_channels=3
             for ch in range(1, num_channels + 1):
                 mask = (actions == ch)  # [64, 5]
@@ -129,6 +130,7 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
 
             #phi = normalized_phi * p0
             power_constr = power_constraint(phi, pmax) # [64]
+            power_constr = power_constr.view(batch_size, 1) # [64, 1]
             power_constr_mean = torch.mean(power_constr, dim = 0)
             
 
@@ -160,8 +162,8 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
     path = plot_results(
         building_id=building_id,
         b5g=b5g,
-        normalized_psi=normalized_psi,
-        normalized_psi_values=normalized_psi_values,
+        normalized_psi=probs,
+        normalized_psi_values=probs_values,
         num_layers=num_layers,
         K=K,
         batch_size=batch_size,
