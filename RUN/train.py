@@ -105,11 +105,11 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
 
             log_p = normalized_phi * torch.log(probs + 1e-10)  # Evitar log(0)
             log_p_sum = torch.sum(log_p, dim=1)
-            phi = normalized_phi * p0
+            phi = normalized_phi * p0 # [64, 5, 4]
 
             power_constr = power_constraint(phi, pmax)
             power_constr_mean = torch.mean(power_constr, dim = 0) # [5, 1]
-            
+
             # rates = get_rates(phi, channel_matrix_batch, sigma)
             rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=p0)
 

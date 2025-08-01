@@ -193,10 +193,41 @@ def get_rates(phi, channel_matrix_batch, sigma):
     rates = torch.log(numerator / denominator + 1)
     return rates
 
+# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
+#     # phi = torch.squeeze(phi, dim = 2) #(64,5,4) , channel_matrix_batch (64,5,5)
+#     numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
+#     expanded_phi = phi.unsqueeze(2)
+#     denominator = (torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator)*expanded_phi/p0 + sigma
+#     rates = torch.log(numerator / denominator + 1)
+#     return rates
+
 def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
-    # phi = torch.squeeze(phi, dim = 2) #(64,5,4) , channel_matrix_batch (64,5,5)
-    numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
-    expanded_phi = phi.unsqueeze(2)
-    denominator = (torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator)*expanded_phi/p0 + sigma
-    rates = torch.log(numerator / denominator + 1)
-    return rates
+    # phi: [batch_size, num_links, output_dim]
+    # channel_matrix_batch: [batch_size, num_links, num_links]
+    channel_matrix_batch = channel_matrix_batch.float()
+    phi = phi.float()
+    
+    batch_size, num_links, output_dim = phi.shape
+
+    rates = torch.zeros((batch_size, num_links), device=phi.device)
+
+    for k in range(output_dim):  # Para cada canal
+        # phi_k: [batch_size, num_links] (nodos que usan canal k)
+        phi_k = phi[:, :, k]  # Potencia asignada al canal k para cada nodo
+
+        # h_ii: [batch_size, num_links] (ganancia directa en canal k)
+        h_ii = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
+
+        # Interferencia: suma de potencias de otros nodos en canal k
+        # channel_matrix_batch: [batch_size, num_links, num_links]
+        # phi_k: [batch_size, num_links]
+        interference = torch.matmul(channel_matrix_batch, phi_k.unsqueeze(2)).squeeze(2) - h_ii * phi_k
+
+        # Numerador y denominador según la fórmula
+        numerator = h_ii * phi_k
+        denominator = sigma + interference * (phi_k / p0)
+
+        # Solo sumar la tasa si el nodo está usando ese canal (phi_k > 0)
+        rates += torch.log1p(numerator / (denominator + 1e-10)) * (phi_k > 0).float()
+
+    return rates  # [batch_size, num_links]
