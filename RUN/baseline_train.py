@@ -32,7 +32,6 @@ from utils import power_constraint
 from utils import get_rates
 from utils import objective_function
 from utils import mu_update
-from utils import channel_constraint
 from utils import nuevo_get_rates
 
 from utils import graphs_to_tensor_synthetic
@@ -52,7 +51,7 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
     mu_k = torch.ones((1,1), requires_grad = False)
     epocs = epocs
 
-    pmax = num_links
+    pmax = num_links*(num_channels+1)
     p0 = 4
 
     sigma = 1e-4
@@ -86,11 +85,11 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
         for batch_idx, data in enumerate(dataloader):
             
             channel_matrix_batch = data.matrix
-            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) # 64 x 5 x 5
-            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr) # 320 x 4
-            # psi = psi.squeeze(-1)   # 320 x 4
-            psi = psi.view(batch_size, num_links, num_channels+1) # 64 x 5 x 4
-            # psi = psi.unsqueeze(-1) # 64 x 5 x 4 x 1
+            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) # [64, 5, 5]
+            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr) # [320, 4]
+            # psi = psi.squeeze(-1)   # [320, 4]
+            psi = psi.view(batch_size, num_links, num_channels+1) # [64, 5, 4]
+            # psi = psi.unsqueeze(-1) # [64, 5, 4, 1]
             
             normalized_psi = torch.sigmoid(psi)*(0.99 - 0.01) + 0.01
             if (baseline==1):
@@ -109,43 +108,36 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
             probs = torch.softmax(psi, dim=-1)  # [64, 5, 4]
             dist = torch.distributions.Categorical(probs=probs)  # distribuciones por usuario
             actions = dist.sample()            # [64, 5], valores en 0..3
-            one_hot_actions = F.one_hot(actions, num_classes=num_channels + 1).float() # [64, 5, 4]
-            print("one_hot_actions:", one_hot_actions)
+            # one_hot_actions = F.one_hot(actions, num_classes=num_channels + 1).float() # [64, 5, 4]
             log_p = dist.log_prob(actions)     # [64, 5]
-            print("log_p:", log_p)
             log_p_sum = log_p.sum(dim=1)       # [64]
-            print("log_p_sum:", log_p_sum)
-            phi_2 = torch.zeros(batch_size, num_links, num_channels, device=probs.device)  # num_channels=3
+            phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)  # num_channels=3
             for ch in range(1, num_channels + 1):
                 mask = (actions == ch)  # [64, 5]
-                phi_2[:, :, ch - 1][mask] = p0
+                phi[:, :, ch - 1][mask] = p0
             
             # acciones == 0 quedan con phi cero (apagado)
 
-            if (baseline==1):
-                normalized_psi = pmax/(p0*num_links) * torch.ones((64,num_links,1))
-                normalized_phi = torch.bernoulli(normalized_psi)
-                phi = normalized_phi * p0
-            elif (baseline==2):
-                phi = normalized_phi * pmax
+            # if (baseline==1):
+            #     normalized_psi = pmax/(p0*num_links) * torch.ones((64,num_links,1))
+            #     normalized_phi = torch.bernoulli(normalized_psi)
+            #     phi = normalized_phi * p0
+            # elif (baseline==2):
+            #     phi = normalized_phi * pmax
 
             #Evaluación del batch
 
             #phi = normalized_phi * p0
-            power_constr = power_constraint(phi, pmax)
+            power_constr = power_constraint(phi, pmax) # [64]
             power_constr_mean = torch.mean(power_constr, dim = 0)
             
 
             #rates = get_rates(phi, channel_matrix_batch, sigma,p0=p0)
-            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma,p0=p0)
-
-            sum_rate = objective_function(rates)
-
+            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma,p0=p0) # [64, 5]
+            sum_rate = objective_function(rates) #[64]
             sum_rate_mean = torch.mean(sum_rate, dim = 0)
-            
             # Actualización de la penalización
             mu_k = mu_update(mu_k, power_constr, eps)
-            
             # Cálculo de la función de costo y backpropagation
             cost = sum_rate + (power_constr * mu_k)
 

@@ -175,14 +175,9 @@ def objective_function(rates):
     return sum_rate
 
 def power_constraint(phi, pmax):
-    sum_phi = torch.sum(phi, dim=1)
+    sum_phi = torch.sum(phi, dim=(1,2))
     return (sum_phi - pmax)
 
-# LO QUE AGREGAMOS NOSOTROS
-def channel_constraint(phi, p0):
-    #phi recibe phi*p0
-    sum_phi = torch.sum(phi, dim=1)
-    return (sum_phi - p0)
 
 def mu_update(mu_k, power_constr, eps):
     mu_k = mu_k.detach()
@@ -202,48 +197,42 @@ def get_rates(phi, channel_matrix_batch, sigma):
 #LO QUE AGREGAMOS NOSOTROS
 def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
     """
-    Compute rates based on the formulation:
-    r_i = E[ log(1 + |h_ii|^2 * p_i / (sigma^2 + sum_{j!=i} |h_ji|^2 * p_j * (p_i / p_0)) ) ]
-    
-    Parameters:
-    - phi: Tensor of shape (batch_size, num_channels, 1) representing binary power allocations (0 or p0)
-    - channel_matrix_batch: Tensor of shape (batch_size, num_channels, num_channels) with channel gains
-    - sigma: Noise variance
-    - p0: Nominal power level per channel
-
-    Returns:
-    - rates: Tensor of shape (batch_size, num_channels, 1) with rates for each transmitter
+    phi: [batch_size, num_links, num_channels] (potencia por canal)
+    channel_matrix_batch: [batch_size, num_links, num_links] (ganancias |h_ji|^2)
+    sigma: ruido
+    p0: potencia por canal cuando está activo
     """
-    phi = torch.squeeze(phi, dim=2)  # Shape: (batch_size, num_channels)
+    batch_size, num_links, num_channels = phi.shape
     
-    # Compute total power p_i for each transmitter i: sum over channels
-    p_i = torch.sum(phi, dim=1, keepdim=True)  # Shape: (batch_size, 1)
+    # Calcular potencia total por enlace (p_i)
+    p_i = torch.sum(phi, dim=2)  # [64, 5]
+    # Obtener ganancias directas (|h_ii|^2)
+    diag_gains = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)  # [64, 5]
     
-    # Extract diagonal channel gains |h_ii|^2
-    h_ii = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)  # Shape: (batch_size, num_channels)
+    # Calcular numerador |h_ii|^2 * p_i
+    numerator = diag_gains * p_i  # [64, 5]
+    # Calcular interferencia (término ∑)
+    interference = torch.zeros(batch_size, num_links, device=phi.device)
     
-    # Numerator: |h_ii|^2 * p_i
-    numerator = h_ii * p_i  # Shape: (batch_size, num_channels) via broadcasting
-    numerator = torch.unsqueeze(numerator, dim=2)  # Shape: (batch_size, num_channels, 1)
-    
-    # Compute interference: sum_j |h_ji|^2 * p_j
-    expanded_phi = phi.unsqueeze(2)  # Shape: (batch_size, num_channels, 1)
-    interference = torch.matmul(channel_matrix_batch.float(), expanded_phi.float())  # Shape: (batch_size, num_channels, 1)
-    
-    # Subtract self-interference: |h_ii|^2 * p_i
-    interference = interference - numerator  # Shape: (batch_size, num_channels, 1)
-    
-    # Scale interference by p_i / p_0
-    scaling_factor = p_i / p0  # Shape: (batch_size, 1)
-    # Ensure scaling_factor broadcasts correctly over num_channels
-    interference = interference * scaling_factor.unsqueeze(1)  # Shape: (batch_size, num_channels, 1)
-    
-    # Total denominator: sigma^2 + interference
-    denominator = interference + sigma
-    
-    # Compute rates: log(1 + numerator / denominator)
-    rates = torch.log(1 + numerator / (denominator + 1e-10))  # Add small constant for stability
-    
+    for ch in range(num_channels):
+        # Máscara para enlaces transmitiendo en este canal
+        transmitting = (phi[:, :, ch] > 0).float()  # [batch_size, num_links]
+        
+        # Potencia transmitida en este canal (p0 o 0)
+        p_ch = transmitting*p0  # [batch_size, num_links]
+        
+        # Calcular interferencia generada por este canal
+        interf_ch = torch.matmul(channel_matrix_batch.float(), p_ch.unsqueeze(2).float()).squeeze(2)  # [batch_size, num_links]
+        
+        # Restar auto-interferencia
+        interf_ch = torch.abs(interf_ch - diag_gains * p_ch)
+        
+        # Aplicar factor de escala (p_i^T/p0)
+        scale_factor = (phi[:, :, ch] > 0).float()  # [batch_size, num_links]
+        interf_ch = interf_ch * (p_i / p0) * scale_factor
+        interference += interf_ch
+    # Calcular tasa final
+    rates = torch.log1p(numerator / (sigma + interference))  # [batch_size, num_links]
     return rates
 
 
