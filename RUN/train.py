@@ -51,13 +51,13 @@ def run(building_id=990, b5g=False, num_links=5,num_channels = 3, num_layers=5, 
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-    mu_k = torch.ones((1,1), requires_grad = False)
+    mu_k = torch.ones((1,1))
     epocs = epocs
 
-    # pmax = num_links
-    pmax = num_links*(num_channels+1)
-
     p0 = 4
+
+    # pmax = num_links
+    pmax = num_links*p0
 
     sigma = 1e-4
 
