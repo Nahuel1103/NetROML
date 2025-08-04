@@ -4,7 +4,7 @@ import os
 import torch
 
 
-def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num_layers=5, K=3, batch_size=64, epocs = 100, rn=100, rn1=100, eps=5e-5, mu_lr=1e-4, objective_function_values=[], power_constraint_values=[],channel_constraint_values=None, loss_values=[],
+def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num_layers=5, K=3, batch_size=64, epochs = 100, rn=100, rn1=100, eps=5e-5, mu_lr=1e-4, objective_function_values=[], power_constraint_values=[], loss_values=[],
                  mu_k_values=[], baseline=0, mark=0, train=True):
     """
     Function that receives the values for different parameters resulting from some training
@@ -20,16 +20,16 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
 
     if train:
         if mark:
-            path = '/Users/nahuelpineyro/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/mark_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1)
+            path = '/Users/nahuelpineyro/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/mark_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1)
         else:
-            path = '/Users/nahuelpineyro/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_train_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1)
+            path = '/Users/nahuelpineyro/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_train_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1)
 
         if (baseline==0):
             path = path + '/'
         else:
             path = path + '_baseline' + str(baseline) + '/'
     else:
-        path = '/Users/nahuelpineyro/NetROML//results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1) + '/'
+        path = '/Users/nahuelpineyro/NetROML//results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1) + '/'
 
 
     if not os.path.exists(path):
@@ -96,16 +96,16 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         plt.savefig(image_path)
         plt.close()
 
-        # plt.figure(figsize=(16,9))
-        # plt.title('Loss post 2000')
-        # plt.xlabel('Iteraciones (x10)')
-        # plt.ylabel('Loss')
-        # plt.plot(loss_values[2000:])
-        # plt.grid()
-        # image_name = f'loss_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-        # image_path = os.path.join(path, image_name)
-        # plt.savefig(image_path)
-        # plt.close()
+        plt.figure(figsize=(16,9))
+        plt.title('Loss post 1000:1200')
+        plt.xlabel('Iteraciones (x10)')
+        plt.ylabel('Loss')
+        plt.plot(loss_values[1000:1200])
+        plt.grid()
+        image_name = f'loss_bt1000:1200'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
+        image_path = os.path.join(path, image_name)
+        plt.savefig(image_path)
+        plt.close()
 
     if len(mu_k_values) > 0:
 

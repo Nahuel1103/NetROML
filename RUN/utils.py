@@ -17,7 +17,6 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import TAGConv
 from torch_geometric.nn import GCNConv
-import os
 import matplotlib.pyplot as plt
 
 import scipy.io
