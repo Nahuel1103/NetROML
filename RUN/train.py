@@ -76,18 +76,17 @@ def run(building_id=990, b5g=False, num_links=5,num_channels = 3, num_layers=5, 
 
 
     for epoc in range(epochs):
-        print("Epoc number: {}".format(epoc))
+        print("Epoch number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
-            optimizer.zero_grad()
     
             channel_matrix_batch = data.matrix
             channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) # [64, 5, 5]
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr) # [320, 4]
             psi = psi.view(batch_size, num_links, num_channels+1) # [64, 5, 4]
 
-            probs = torch.softmax(psi, dim=-1)  # [64, 5, 4]
-            dist = torch.distributions.Categorical(probs=probs)  # distribuciones por usuario
-            actions = dist.sample()            # [64, 5], valores en 0..3
+            probs = torch.softmax(psi, dim=-1)  
+            dist = torch.distributions.Categorical(probs=probs)  
+            actions = dist.sample()            
             log_p = dist.log_prob(actions)     # [64, 5]
             log_p_sum = log_p.sum(dim=1).unsqueeze(-1)       # [64,1]
             
@@ -115,6 +114,7 @@ def run(building_id=990, b5g=False, num_links=5,num_channels = 3, num_layers=5, 
             loss_mean.backward()
             torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=1.0)
             optimizer.step()
+            optimizer.zero_grad()
 
             if batch_idx%10 == 0:
                 probs_values.append(probs.mean(dim=[0,1]).detach().numpy())
