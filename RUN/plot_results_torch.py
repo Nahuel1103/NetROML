@@ -132,27 +132,15 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         plt.close()
     
     if (len(normalized_psi_values) > 0):
-        # plt.figure(figsize=(16,9))
-        # plt.plot(normalized_psi_values)
-        # plt.grid()
-        # image_name = 'policies.png'
-        # image_path = os.path.join(path, image_name)
-        # plt.savefig(image_path)
-        # plt.close()
-        # convertir a array: list of [m,4] → [steps, m, 4]
-        arr = np.stack(normalized_psi_values, axis=0)  # shape [T, m, 4]
-        # por ejemplo, para el usuario 0 (primer decisor), ver cómo evolucionan sus 4 probabilidades:
         plt.figure(figsize=(16,9))
-        for k in range(arr.shape[2]):  # 4 acciones
-            plt.plot(arr[400:501, 0, k], label=f"accion {k}")  # usuario 0
-        plt.title("Evolución de la distribución de la policy para usuario 0")
-        plt.xlabel("Iteraciones (cada registro)")
-        plt.ylabel("Probabilidad")
-        plt.legend()
+        plt.plot(normalized_psi_values)
         plt.grid()
-        image_name = 'policy_user2.png'
-        plt.savefig(os.path.join(path, image_name))
+        image_name = 'policies.png'
+        image_path = os.path.join(path, image_name)
+        plt.savefig(image_path)
         plt.close()
+        # convertir a array: list of [m,4] → [steps, m, 4]
+
 
 
     normalized_psi= torch.mean(normalized_psi, dim=0)

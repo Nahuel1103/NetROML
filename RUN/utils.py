@@ -216,23 +216,23 @@ def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
     
     for ch in range(num_channels):
         # Máscara para enlaces transmitiendo en este canal
-        transmitting = (phi[:, :, ch] > 0).float()  # [batch_size, num_links]
+        transmitting = (phi[:, :, ch] > 0).float()  # [64, 5]
         
         # Potencia transmitida en este canal (p0 o 0)
-        p_ch = transmitting*p0  # [batch_size, num_links]
+        p_ch = transmitting*p0  # [64, 5]
         
         # Calcular interferencia generada por este canal
-        interf_ch = torch.matmul(channel_matrix_batch.float(), p_ch.unsqueeze(2).float()).squeeze(2)  # [batch_size, num_links]
+        interf_ch = torch.matmul(channel_matrix_batch.float(), p_ch.unsqueeze(2).float()).squeeze(2)  # [64, 5]
         
         # Restar auto-interferencia
         interf_ch = torch.abs(interf_ch - diag_gains * p_ch)
         
-        # Aplicar factor de escala (p_i^T/p0)
-        scale_factor = (phi[:, :, ch] > 0).float()  # [batch_size, num_links]
+        # Interferencia entre el usuario i y j sii mismo canal
+        scale_factor = (phi[:, :, ch] > 0).float()  # [64, 5]
         interf_ch = interf_ch * (p_i / p0) * scale_factor
         interference += interf_ch
     # Calcular tasa final
-    rates = torch.log1p(numerator / (sigma + interference))  # [batch_size, num_links]
+    rates = torch.log1p(numerator / (sigma + interference))  # [64, 5]
     return rates
 
 

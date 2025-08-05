@@ -58,7 +58,7 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
 
     input_dim = 1
     hidden_dim = 1
-    output_dim = 4 # off, ch1, ch2, ch3
+    output_dim = 4              # off, ch1, ch2, ch3
     num_layers = num_layers
     dropout = False
     K = K
@@ -112,11 +112,12 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
             log_p = dist.log_prob(actions)     # [64, 5]
             log_p_sum = log_p.sum(dim=1)       # [64]
             log_p_sum = log_p_sum.view(batch_size, 1)  # [64, 1]
-            phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)  # num_channels=3
+            phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)  # [64, 5, 3]
             for ch in range(1, num_channels + 1):
                 mask = (actions == ch)  # [64, 5]
                 phi[:, :, ch - 1][mask] = p0
             
+            # phi[:, :, 0] = p0 * (1 - torch.sum(one_hot_actions, dim=-1))  # [64, 5], los que no tienen acción            
             # acciones == 0 quedan con phi cero (apagado)
 
             # if (baseline==1):

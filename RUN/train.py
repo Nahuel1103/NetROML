@@ -30,13 +30,12 @@ from utils import power_constraint
 from utils import get_rates
 from utils import objective_function
 from utils import mu_update
-from utils import channel_constraint
 from utils import nuevo_get_rates
 
 from utils import graphs_to_tensor_synthetic
 
 
-def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
+def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
@@ -54,14 +53,14 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
     mu_k = torch.ones((1,1), requires_grad = False)
     epocs = epocs
 
-    pmax = num_links
+    pmax = num_links*(num_channels+1)
     p0 = 4
 
     sigma = 1e-4
 
     input_dim = 1
     hidden_dim = 1
-    output_dim = 1
+    output_dim = 4
     num_layers = num_layers
     dropout = False
     K = K
@@ -80,7 +79,7 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
     loss_values = []
     mu_k_values = []
     normalized_psi_values = []
-    channel_constraint_values = []
+    probs_values = []
 
     for epoc in range(epocs):
         print("Epoc number: {}".format(epoc))
@@ -90,28 +89,38 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
             channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links)
 
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
-            psi = psi.squeeze(-1)
-            psi = psi.view(batch_size, -1)
-            psi = psi.unsqueeze(-1)
+            # psi = psi.squeeze(-1)
+            psi = psi.view(batch_size, num_links, num_channels + 1)  # [64, 5, 4]
+            # psi = psi.unsqueeze(-1)
             
-            normalized_psi = (torch.tanh(psi)*(0.99 - 0.01) + 1)/2
-            normalized_psi_values.append(normalized_psi[0,:,:].squeeze(-1).detach().numpy())
+            # normalized_psi = (torch.tanh(psi)*(0.99 - 0.01) + 1)/2
+            # normalized_psi_values.append(normalized_psi[0,:,:].squeeze(-1).detach().numpy())
 
-            normalized_phi = torch.bernoulli(normalized_psi)
-            log_p = normalized_phi * torch.log(normalized_psi) + (1 - normalized_phi) * torch.log(1 - normalized_psi)
-            log_p_sum = torch.sum(log_p, dim=1)
-            phi = normalized_phi * p0
+            # normalized_phi = torch.bernoulli(normalized_psi)
+            # log_p = normalized_phi * torch.log(normalized_psi) + (1 - normalized_phi) * torch.log(1 - normalized_psi)
+            # log_p_sum = torch.sum(log_p, dim=1)
+            # phi = normalized_phi * p0
 
-            power_constr = power_constraint(phi, pmax)
+            # La phi que usamos nosotros
+            probs = torch.softmax(psi, dim=-1)  # [64, 5, 4]
+            dist = torch.distributions.Categorical(probs=probs)  # distribuciones por usuario
+            actions = dist.sample()            # [64, 5], valores en 0..3
+            # one_hot_actions = F.one_hot(actions, num_classes=num_channels + 1).float() # [64, 5, 4]
+            log_p = dist.log_prob(actions)     # [64, 5]
+            log_p_sum = log_p.sum(dim=1)       # [64]
+            log_p_sum = log_p_sum.view(batch_size, 1)  # [64, 1]
+            phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)  # [64, 5, 3]
+            for ch in range(1, num_channels + 1):
+                mask = (actions == ch)  # [64, 5]
+                phi[:, :, ch - 1][mask] = p0
+
+            power_constr = power_constraint(phi, pmax).unsqueeze(-1)  # [64, 5, 1]
             power_constr_mean = torch.mean(power_constr, dim = 0)
-
-            channel_constr = channel_constraint(phi, p0)
-            channel_constr_mean = torch.mean(channel_constr, dim = 0)
             
             # rates = get_rates(phi, channel_matrix_batch, sigma)
             rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=p0)
 
-            sum_rate = objective_function(rates)
+            sum_rate = objective_function(rates).unsqueeze(-1)
 
             sum_rate_mean = torch.mean(sum_rate, dim = 0)
             
@@ -132,7 +141,8 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
                 mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
-                channel_constraint_values.append(channel_constr_mean.detach().numpy())
+                probs_values.append(probs.mean(dim=(0,1)).detach().numpy())
+
 
     for name, param in gnn_model.named_parameters():
         if param.requires_grad:
@@ -145,8 +155,8 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
     path = plot_results(
             building_id=building_id,
             b5g=b5g,
-            normalized_psi=normalized_psi,
-            normalized_psi_values=normalized_psi_values,
+            normalized_psi=probs,
+            normalized_psi_values=probs_values,
             num_layers=num_layers,
             K=K,
             batch_size=batch_size,
@@ -156,7 +166,6 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
             eps=eps,
             objective_function_values=objective_function_values,
             power_constraint_values=power_constraint_values,
-            channel_constraint_values=channel_constraint_values,  # <-- NUEVO
             loss_values=loss_values,
             mu_k_values=mu_k_values,
             train=True
@@ -183,7 +192,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--building_id', type=int, default=990)
     parser.add_argument('--b5g', type=int, default=0)
-    parser.add_argument('--num_channels', type=int, default=5)
+    parser.add_argument('--num_links', type=int, default=5)
+    parser.add_argument('--num_channels', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
     parser.add_argument('--epocs', type=int, default=150)
@@ -196,6 +206,7 @@ if __name__ == '__main__':
     
     print(f'building_id: {args.building_id}')
     print(f'b5g: {args.b5g}')
+    print(f'num_links: {args.num_links}')
     print(f'num_channels: {args.num_channels}')
     print(f'num_layers: {args.num_layers}')
     print(f'k: {args.k}')
@@ -205,5 +216,5 @@ if __name__ == '__main__':
     print(f'mu_lr: {args.mu_lr}')
     print(f'synthetic: {args.synthetic}')
     
-    run(building_id=args.building_id, b5g=args.b5g, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epocs=args.epocs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
+    run(building_id=args.building_id, b5g=args.b5g, num_links = args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epocs=args.epocs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
     print('Seeds: {} and {}'.format(rn, rn1))
