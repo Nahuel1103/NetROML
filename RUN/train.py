@@ -100,9 +100,11 @@ def run(building_id=990, b5g=False, num_links=5,num_channels = 3, num_layers=5, 
             power_constr_mean = torch.mean(power_constr, dim = 0)
             
             #rates = get_rates(phi, channel_matrix_batch, sigma,p0=p0)
-            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma,p0=p0) # [64, 5]
+            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma,p0=p0) # [64, 5,3]
+
             sum_rate = objective_function(rates).unsqueeze(-1) #[64,1]
             sum_rate_mean = torch.mean(sum_rate, dim = 0)
+            
             # Actualización de la penalización
             mu_k = mu_update(mu_k, power_constr, eps)
 
