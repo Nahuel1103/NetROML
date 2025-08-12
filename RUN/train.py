@@ -35,7 +35,7 @@ from utils import nuevo_get_rates
 from utils import graphs_to_tensor_synthetic
 
 
-def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
+def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5, K=3, batch_size=64, epochs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
@@ -51,7 +51,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5,
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     mu_k = torch.ones((1,1), requires_grad = False)
-    epocs = epocs
+    epochs = epochs
 
     pmax = num_links*(num_channels+1)
     p0 = 4
@@ -60,7 +60,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5,
 
     input_dim = 1
     hidden_dim = 1
-    output_dim = 4
+    output_dim = num_channels + 1  # off, ch1, ch2, ch3
     num_layers = num_layers
     dropout = False
     K = K
@@ -78,11 +78,10 @@ def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5,
     power_constraint_values = []
     loss_values = []
     mu_k_values = []
-    normalized_psi_values = []
     probs_values = []
 
-    for epoc in range(epocs):
-        print("Epoc number: {}".format(epoc))
+    for epoc in range(epochs):
+        print("Epoch number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
             
             channel_matrix_batch = data.matrix
@@ -107,8 +106,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5,
             actions = dist.sample()            # [64, 5], valores en 0..3
             # one_hot_actions = F.one_hot(actions, num_classes=num_channels + 1).float() # [64, 5, 4]
             log_p = dist.log_prob(actions)     # [64, 5]
-            log_p_sum = log_p.sum(dim=1)       # [64]
-            log_p_sum = log_p_sum.view(batch_size, 1)  # [64, 1]
+            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)       # [64,1]
             phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)  # [64, 5, 3]
             for ch in range(1, num_channels + 1):
                 mask = (actions == ch)  # [64, 5]
@@ -148,7 +146,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5,
         if param.requires_grad:
             print(name, param.data)
     
-    # path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=normalized_psi, normalized_psi_values=normalized_psi_values, num_layers=num_layers, K=K, batch_size=batch_size, epocs=epocs, rn=rn, rn1=rn1, eps=eps, mu_lr=mu_lr,
+    # path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=normalized_psi, normalized_psi_values=normalized_psi_values, num_layers=num_layers, K=K, batch_size=batch_size, epochs=epochs, rn=rn, rn1=rn1, eps=eps, mu_lr=mu_lr,
     #                 objective_function_values=objective_function_values, power_constraint_values=power_constraint_values,
     #                 loss_values=loss_values, mu_k_values=mu_k_values, baseline=False, synthetic=synthetic, train=True)
     
@@ -160,7 +158,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5,
             num_layers=num_layers,
             K=K,
             batch_size=batch_size,
-            epocs=epocs,
+            epochs=epochs,
             rn=rn,
             rn1=rn1,
             eps=eps,
@@ -171,7 +169,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5,
             train=True
         )
 
-    file_name = path + 'objective_function_values_train_' + str(epocs) + '.pkl'
+    file_name = path + 'objective_function_values_train_' + str(epochs) + '.pkl'
     with open(file_name, 'wb') as archivo:
         pickle.dump(objective_function_values, archivo)
 
@@ -196,11 +194,11 @@ if __name__ == '__main__':
     parser.add_argument('--num_channels', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epocs', type=int, default=150)
+    parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
-    parser.add_argument('--synthetic', type=int, default=1)
+    parser.add_argument('--synthetic', type=int, default=0)
     
     args = parser.parse_args()
     
@@ -210,11 +208,11 @@ if __name__ == '__main__':
     print(f'num_channels: {args.num_channels}')
     print(f'num_layers: {args.num_layers}')
     print(f'k: {args.k}')
-    print(f'epocs: {args.epocs}')
+    print(f'epochs: {args.epochs}')
     print(f'batch_size: {args.batch_size}')
     print(f'eps: {args.eps}')
     print(f'mu_lr: {args.mu_lr}')
     print(f'synthetic: {args.synthetic}')
     
-    run(building_id=args.building_id, b5g=args.b5g, num_links = args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epocs=args.epocs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
+    run(building_id=args.building_id, b5g=args.b5g, num_links = args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
     print('Seeds: {} and {}'.format(rn, rn1))

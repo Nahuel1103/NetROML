@@ -205,12 +205,14 @@ def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
     batch_size, num_links, num_channels = phi.shape
     
     # Calcular potencia total por enlace (p_i)
-    p_i = torch.sum(phi, dim=2)  # [64, 5]
+    p_i = phi  # [64, 5, 3]
+
     # Obtener ganancias directas (|h_ii|^2)
-    diag_gains = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)  # [64, 5]
+    diag_gains = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2).unsqueeze(-1)  # [64, 5, 1]
     
     # Calcular numerador |h_ii|^2 * p_i
-    numerator = diag_gains * p_i  # [64, 5]
+    numerator = diag_gains * p_i  # [64, 5, 3]
+
     # Calcular interferencia (término ∑)
     interference = torch.zeros(batch_size, num_links, device=phi.device)
     
@@ -233,6 +235,7 @@ def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
         interference += interf_ch
     # Calcular tasa final
     rates = torch.log1p(numerator / (sigma + interference))  # [64, 5]
+
     return rates
 
 

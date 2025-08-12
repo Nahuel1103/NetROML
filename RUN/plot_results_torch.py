@@ -4,7 +4,7 @@ import os
 import torch
 
 
-def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num_layers=5, K=3, batch_size=64, epocs = 100, rn=100, rn1=100, eps=5e-5, mu_lr=1e-4, objective_function_values=[], power_constraint_values=[], loss_values=[],
+def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num_layers=5, K=3, batch_size=64, epochs = 100, rn=100, rn1=100, eps=5e-5, mu_lr=1e-4, objective_function_values=[], power_constraint_values=[], loss_values=[],
                  mu_k_values=[], baseline=0, synthetic=0, train=True):
     """
     Function that receives the values for different parameters resulting from some training
@@ -20,16 +20,16 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
 
     if train:
         if synthetic:
-            path = '/Users/mauriciovieirarodriguez/project/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/synthetic_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1)
+            path = '/Users/mauriciovieirarodriguez/project/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/synthetic_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1)
         else:
-            path = '/Users/mauriciovieirarodriguez/project/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_train_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1)
+            path = '/Users/mauriciovieirarodriguez/project/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_train_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1)
 
         if (baseline==0):
             path = path + '/'
         else:
             path = path + '_baseline' + str(baseline) + '/'
     else:
-        path = '/Users/mauriciovieirarodriguez/project/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1) + '/'
+        path = '/Users/mauriciovieirarodriguez/project/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1) + '/'
 
 
     if not os.path.exists(path):
