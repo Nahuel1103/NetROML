@@ -55,7 +55,7 @@ def run(building_id=990, b5g=False, num_links=5,num_channels = 3, num_layers=5, 
     epochs = epochs
 
     # pmax = num_links
-    pmax = num_links*p0
+    pmax = num_links*num_channels
 
     input_dim = 1
     hidden_dim = 1
