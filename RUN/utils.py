@@ -171,8 +171,15 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor):
     return input_list
 
 def objective_function(rates):
-    sum_rate = -torch.sum(rates, dim=1)
-    return sum_rate
+    """
+    Recompensa localizada: devuelve la tasa por enlace y canal (o agregada por enlace si querés).
+    rates: [B, m, c]
+    """
+    # Si querés que la recompensa sea por enlace (sumando sobre canales activos)
+    per_link_reward = rates.sum(dim=2)  # [B, m]
+
+    # Si querés devolver negativo (para minimizar costo en un optimizador tipo policy gradient)
+    return -per_link_reward  # [B, m]
 
 def power_constraint(phi, pmax):
     sum_phi = torch.sum(phi, dim=(1,2))
@@ -196,47 +203,57 @@ def get_rates(phi, channel_matrix_batch, sigma):
 
 #LO QUE AGREGAMOS NOSOTROS
 def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
-    """
-    phi: [batch_size, num_links, num_channels] (potencia por canal)
-    channel_matrix_batch: [batch_size, num_links, num_links] (ganancias |h_ji|^2)
-    sigma: ruido
-    p0: potencia por canal cuando está activo
-    """
+
     batch_size, num_links, num_channels = phi.shape
     
-    # Calcular potencia total por enlace (p_i)
-    p_i = phi  # [64, 5, 3]
-
-    # Obtener ganancias directas (|h_ii|^2)
-    diag_gains = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2).unsqueeze(-1)  # [64, 5, 1]
-    
-    # Calcular numerador |h_ii|^2 * p_i
-    numerator = diag_gains * p_i  # [64, 5, 3]
-
-    # Calcular interferencia (término ∑)
-    interference = torch.zeros(batch_size, num_links, device=phi.device)
-    
+    rates = torch.zeros(batch_size, num_links, num_channels)
     for ch in range(num_channels):
-        # Máscara para enlaces transmitiendo en este canal
-        transmitting = (phi[:, :, ch] > 0).float()  # [64, 5]
-        
-        # Potencia transmitida en este canal (p0 o 0)
-        p_ch = transmitting*p0  # [64, 5]
-        
-        # Calcular interferencia generada por este canal
-        interf_ch = torch.matmul(channel_matrix_batch.float(), p_ch.unsqueeze(2).float()).squeeze(2)  # [64, 5]
-        
-        # Restar auto-interferencia
-        interf_ch = torch.abs(interf_ch - diag_gains * p_ch)
-        
-        # Interferencia entre el usuario i y j sii mismo canal
-        scale_factor = (phi[:, :, ch] > 0).float()  # [64, 5]
-        interf_ch = interf_ch * (p_i / p0) * scale_factor
-        interference += interf_ch
-    # Calcular tasa final
-    rates = torch.log1p(numerator / (sigma + interference))  # [64, 5]
+        # Seleccionamos la columna correspondiente al canal ch
+        p_i = phi[:, :, ch]
+        numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * p_i, dim=2)
+        expanded_phi = torch.unsqueeze(p_i, dim=2)
+        denominator = (torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator)*expanded_phi + sigma
+        rate_ch = torch.log1p(numerator / denominator)
+        rates[:, :, ch] = rate_ch.squeeze(-1)
+    return rates
 
     return rates
+
+
+# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
+#     """
+#     Calcula la tasa por enlace y canal, solo para canales donde el enlace transmite.
+#     """
+#     # batch_size, num_links, num_channels = phi.shape
+#     h = channel_matrix_batch.float()
+
+#     # Ganancia directa h_ii [B, m]
+#     h_ii = torch.diagonal(h, dim1=1, dim2=2)
+
+#     # Ganancia cruzada h_ji con ceros en diagonal [B, m, m]
+#     h_ji = h - torch.diag_embed(h_ii)
+
+#     # [B, m, c, 1] y [B, 1, c, m] → broadcasting para co-canal
+#     p_i = phi.unsqueeze(3)         # [B, m, c, 1]
+#     p_j = phi.unsqueeze(1).permute(0,1,3,2)       # [B, 1, c, m]
+
+#     # Potencia co-canal normalizada
+#     cochannel_power = (p_i * p_j) / p0  # [B, m, c, m]
+
+#     # Interferencia: sumamos sobre emisores j
+#     interf = (h_ji.unsqueeze(2) * cochannel_power).sum(dim=3)  # [B, m, c]
+
+#     # Señal útil
+#     numerator = h_ii.unsqueeze(2) * phi  # [B, m, c]
+
+#     # Máscara para no contar enlaces inactivos
+#     active_mask = (phi > 0).float()
+
+#     # Rate solo para activos
+#     rates = torch.log1p(numerator / (sigma + interf)) * active_mask
+
+#     return rates  # [B, m, c]
+
 
 
 

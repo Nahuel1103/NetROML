@@ -36,7 +36,7 @@ from utils import nuevo_get_rates
 
 from utils import graphs_to_tensor_synthetic
 
-def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, baseline=1, synthetic=1, rn=100, rn1=100):   
+def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5, K=3, batch_size=64, epochs=100, eps=5e-5, mu_lr=1e-4, baseline=1, synthetic=1, rn=100, rn1=100):   
 
     banda = ['2_4', '5']
     if synthetic:
@@ -49,7 +49,7 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     mu_k = torch.ones((1,1), requires_grad = False)
-    epocs = epocs
+    epochs = epochs
 
     pmax = num_links*(num_channels+1)
     p0 = 4
@@ -79,7 +79,7 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
     probs_values = []
 
 
-    for epoc in range(epocs):
+    for epoc in range(epochs):
         print("Epoc number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
             
@@ -136,7 +136,7 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
             
 
             #rates = get_rates(phi, channel_matrix_batch, sigma,p0=p0)
-            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma,p0=p0) # [64, 5]
+            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=p0) # [64, 5]
             sum_rate = objective_function(rates) #[64]
             sum_rate_mean = torch.mean(sum_rate, dim = 0)
             # Actualización de la penalización
@@ -155,7 +155,7 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
                 mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
     
-    # path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=normalized_psi, normalized_psi_values=normalized_psi_values, num_layers=num_layers, K=K, batch_size=batch_size, epocs=epocs, rn=rn, rn1=rn1, eps=eps,
+    # path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=normalized_psi, normalized_psi_values=normalized_psi_values, num_layers=num_layers, K=K, batch_size=batch_size, epochs=epochs, rn=rn, rn1=rn1, eps=eps,
     #                 objective_function_values=objective_function_values, power_constraint_values=power_constraint_values,
     #                 loss_values=loss_values, mu_k_values=mu_k_values, baseline=baseline)
     
@@ -168,7 +168,7 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
         num_layers=num_layers,
         K=K,
         batch_size=batch_size,
-        epocs=epocs,
+        epochs=epochs,
         rn=rn,
         rn1=rn1,
         eps=eps,
@@ -182,7 +182,7 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
 
 
     path = '/Users/mauriciovieirarodriguez/project/NetROML/results/'+str(banda[b5g])+'_'+str(building_id)+'/torch_results/'
-    file_name = path + 'baseline'+str(baseline)+'_'+str(epocs)+'.pkl'
+    file_name = path + 'baseline'+str(baseline)+'_'+str(epochs)+'.pkl'
     with open(file_name, 'wb') as archivo:
         pickle.dump(objective_function_values, archivo)
     
@@ -204,7 +204,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_channels', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epocs', type=int, default=150)
+    parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-5)
     parser.add_argument('--mu_lr', type=float, default=5e-5)
@@ -219,7 +219,7 @@ if __name__ == '__main__':
     print(f'num_channels: {args.num_channels}')
     print(f'num_layers: {args.num_layers}')
     print(f'k: {args.k}')
-    print(f'epocs: {args.epocs}')
+    print(f'epochs: {args.epochs}')
     print(f'batch_size: {args.batch_size}')
     print(f'eps: {args.eps}')
     print(f'mu_lr: {args.mu_lr}')
@@ -228,7 +228,7 @@ if __name__ == '__main__':
 
     
 
-    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epocs=args.epocs, eps=args.eps, mu_lr=args.mu_lr, baseline=args.baseline, synthetic=args.synthetic, rn=rn, rn1=rn1)
+    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, baseline=args.baseline, synthetic=args.synthetic, rn=rn, rn1=rn1)
     print(rn)
     print(rn1)
 

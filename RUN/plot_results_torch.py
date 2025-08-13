@@ -133,7 +133,7 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
     
     if (len(normalized_psi_values) > 0):
         plt.figure(figsize=(16,9))
-        plt.plot(normalized_psi_values)
+        plt.plot(np.array(normalized_psi_values).mean(axis=2))
         plt.grid()
         image_name = 'policies.png'
         image_path = os.path.join(path, image_name)
