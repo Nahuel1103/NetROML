@@ -17,7 +17,6 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import TAGConv
 from torch_geometric.nn import GCNConv
-import os
 import matplotlib.pyplot as plt
 
 import scipy.io
@@ -141,7 +140,7 @@ def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, buildin
 def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    path = '/Users/mauriciovieirarodriguez/project/NetROML/graph/' + str(band[b5g]) + '_' + str(building_id) + '/'
     file_name = 'synthetic_graphs.pkl'
     with open(path + file_name, 'rb') as archivo:
         graphs = pickle.load(archivo)
@@ -171,20 +170,12 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor):
     return input_list
 
 def objective_function(rates):
-    """
-    Recompensa localizada: devuelve la tasa por enlace y canal (o agregada por enlace si querés).
-    rates: [B, m, c]
-    """
-    # Si querés que la recompensa sea por enlace (sumando sobre canales activos)
-    per_link_reward = rates.sum(dim=2)  # [B, m]
-
-    # Si querés devolver negativo (para minimizar costo en un optimizador tipo policy gradient)
-    return -per_link_reward  # [B, m]
+    sum_rate = -torch.sum(rates, dim=(1,2))
+    return sum_rate
 
 def power_constraint(phi, pmax):
     sum_phi = torch.sum(phi, dim=(1,2))
     return (sum_phi - pmax)
-
 
 def mu_update(mu_k, power_constr, eps):
     mu_k = mu_k.detach()
@@ -193,70 +184,31 @@ def mu_update(mu_k, power_constr, eps):
     mu_k = torch.max(mu_k, torch.tensor(0.0))
     return mu_k
 
-def get_rates(phi, channel_matrix_batch, sigma):
-    phi = torch.squeeze(phi, dim = 2)
-    numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
-    expanded_phi = torch.unsqueeze(phi, dim=2)
-    denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator + sigma
-    rates = torch.log(numerator / denominator + 1)
-    return rates
+# def get_rates(phi, channel_matrix_batch, sigma):
+#     phi = torch.squeeze(phi, dim = 2)
+#     numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
+#     expanded_phi = torch.unsqueeze(phi, dim=2)
+#     denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator + sigma
+#     rates = torch.log(numerator / denominator + 1)
+#     return rates
 
-#LO QUE AGREGAMOS NOSOTROS
 def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
-
+    """
+    phi: [batch_size, num_links, num_channels] (potencia de cada enlace por canal)
+    channel_matrix_batch: [batch_size, num_links, num_links] (ganancias |h_ji|^2)
+    sigma: ruido (scalar)
+    p0: potencia del canal cuando está activo
+    """
     batch_size, num_links, num_channels = phi.shape
-    
-    rates = torch.zeros(batch_size, num_links, num_channels)
+    H = channel_matrix_batch.float()  # [batch_size, num_links, num_links]
+    rates = torch.zeros(batch_size, num_links, num_channels)  
+
     for ch in range(num_channels):
-        # Seleccionamos la columna correspondiente al canal ch
-        p_i = phi[:, :, ch]
-        numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * p_i, dim=2)
-        expanded_phi = torch.unsqueeze(p_i, dim=2)
-        denominator = (torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator)*expanded_phi + sigma
-        rate_ch = torch.log1p(numerator / denominator)
-        rates[:, :, ch] = rate_ch.squeeze(-1)
+            p_ch = phi[:,:,ch].float()  # [batch_size, num_links]
+            h_ii = torch.diagonal(H, dim1=1, dim2=2)[0,:]    # [batch_size, num_links]
+            numerator = torch.unsqueeze(h_ii * p_ch, dim=-1) # [batch_size, num_links, 1]
+            p = torch.unsqueeze(p_ch, dim=-1).float() # [batch_size, num_links, 1]
+            denominator = (torch.matmul(H, p) - numerator)*p/p0  +  sigma  # [batch_size, num_links, 1]
+            rate_ch = torch.log(numerator / denominator + 1).squeeze(-1)    # [batch_size, num_links]
+            rates[:, :, ch] = rate_ch
     return rates
-
-    return rates
-
-
-# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
-#     """
-#     Calcula la tasa por enlace y canal, solo para canales donde el enlace transmite.
-#     """
-#     # batch_size, num_links, num_channels = phi.shape
-#     h = channel_matrix_batch.float()
-
-#     # Ganancia directa h_ii [B, m]
-#     h_ii = torch.diagonal(h, dim1=1, dim2=2)
-
-#     # Ganancia cruzada h_ji con ceros en diagonal [B, m, m]
-#     h_ji = h - torch.diag_embed(h_ii)
-
-#     # [B, m, c, 1] y [B, 1, c, m] → broadcasting para co-canal
-#     p_i = phi.unsqueeze(3)         # [B, m, c, 1]
-#     p_j = phi.unsqueeze(1).permute(0,1,3,2)       # [B, 1, c, m]
-
-#     # Potencia co-canal normalizada
-#     cochannel_power = (p_i * p_j) / p0  # [B, m, c, m]
-
-#     # Interferencia: sumamos sobre emisores j
-#     interf = (h_ji.unsqueeze(2) * cochannel_power).sum(dim=3)  # [B, m, c]
-
-#     # Señal útil
-#     numerator = h_ii.unsqueeze(2) * phi  # [B, m, c]
-
-#     # Máscara para no contar enlaces inactivos
-#     active_mask = (phi > 0).float()
-
-#     # Rate solo para activos
-#     rates = torch.log1p(numerator / (sigma + interf)) * active_mask
-
-#     return rates  # [B, m, c]
-
-
-
-
-# $$
-# r_i = \mathbb{E} \left[ \log \left( 1 + \frac{ |h_{ii}|^2 p_i(\mathbf{H}) }{ \sigma^2 + \sum_{j \neq i} |h_{ji}|^2 p_j(\mathbf{H}) \cdot \frac{p_i(\mathbf{H})}{p_0} } \right) \right],
-# $$
