@@ -173,10 +173,6 @@ def objective_function(rates):
     sum_rate = -torch.sum(rates, dim=(1,2))
     return sum_rate
 
-# def power_constraint(phi, pmax):
-#     sum_phi = torch.sum(phi, dim=1)
-#     return (sum_phi - pmax)
-
 def power_constraint(phi, pmax):
     sum_phi = torch.sum(phi, dim=(1,2))
     return (sum_phi - pmax)
