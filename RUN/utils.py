@@ -169,9 +169,15 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor):
         input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
     return input_list
 
+# def objective_function(rates):
+#     sum_rate = -torch.sum(rates, dim=(1,2))
+#     return sum_rate
+
 def objective_function(rates):
-    sum_rate = -torch.sum(rates, dim=(1,2))
+    # sumamos solo sobre links
+    sum_rate = -torch.sum(rates, dim=1)  # [batch_size]
     return sum_rate
+
 
 def power_constraint(phi, pmax):
     sum_phi = torch.sum(phi, dim=(1,2))
@@ -192,23 +198,44 @@ def mu_update(mu_k, power_constr, eps):
 #     rates = torch.log(numerator / denominator + 1)
 #     return rates
 
-def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
+# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
+#     """
+#     phi: [batch_size, num_links, num_channels] (potencia de cada enlace por canal)
+#     channel_matrix_batch: [batch_size, num_links, num_links] (ganancias |h_ji|^2)
+#     sigma: ruido (scalar)
+#     p0: potencia del canal cuando está activo
+#     """
+#     batch_size, num_links, num_channels = phi.shape
+#     H = channel_matrix_batch.float()  # [batch_size, num_links, num_links]
+#     rates = torch.zeros(batch_size, num_links, num_channels)  
+
+#     for ch in range(num_channels):
+#             p_ch = phi[:,:,ch].float()  # [batch_size, num_links]
+#             h_ii = torch.diagonal(H, dim1=1, dim2=2)[0,:]    # [batch_size, num_links]
+#             numerator = torch.unsqueeze(h_ii * p_ch, dim=-1) # [batch_size, num_links, 1]
+#             p = torch.unsqueeze(p_ch, dim=-1).float() # [batch_size, num_links, 1]
+#             denominator = (torch.matmul(H, p) - numerator)*p/p0  +  sigma  # [batch_size, num_links, 1]
+#             rate_ch = torch.log(numerator / denominator + 1).squeeze(-1)    # [batch_size, num_links]
+#             rates[:, :, ch] = rate_ch
+#     return rates
+
+def nuevo_get_rates(phi, channel_matrix_batch, sigma):
     """
     phi: [batch_size, num_links, num_channels] (potencia de cada enlace por canal)
-    channel_matrix_batch: [batch_size, num_links, num_links] (ganancias |h_ji|^2)
+    channel_matrix_batch: [batch_size, num_links, num_links] (|h_ji|^2)
     sigma: ruido (scalar)
-    p0: potencia del canal cuando está activo
     """
     batch_size, num_links, num_channels = phi.shape
-    H = channel_matrix_batch.float()  # [batch_size, num_links, num_links]
-    rates = torch.zeros(batch_size, num_links, num_channels)  
+    rates = torch.zeros(batch_size, num_links, num_channels, device=phi.device)
 
     for ch in range(num_channels):
-            p_ch = phi[:,:,ch].float()  # [batch_size, num_links]
-            h_ii = torch.diagonal(H, dim1=1, dim2=2)[0,:]    # [batch_size, num_links]
-            numerator = torch.unsqueeze(h_ii * p_ch, dim=-1) # [batch_size, num_links, 1]
-            p = torch.unsqueeze(p_ch, dim=-1).float() # [batch_size, num_links, 1]
-            denominator = (torch.matmul(H, p) - numerator)*p/p0  +  sigma  # [batch_size, num_links, 1]
-            rate_ch = torch.log(numerator / denominator + 1).squeeze(-1)    # [batch_size, num_links]
-            rates[:, :, ch] = rate_ch
-    return rates
+        p_i = phi[:,:,ch]  # potencia de cada enlace en canal ch
+        # señal útil
+        signal = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * p_i
+        # interferencia: suma de potencias de los demás enlaces
+        interf = torch.matmul(channel_matrix_batch.float(), p_i.unsqueeze(-1).float()).squeeze(-1) - signal
+        rates[:,:,ch] = torch.log2(1 + signal / (interf + sigma))
+
+    # tomar la tasa total de cada enlace (sumar o max según definas reward)
+    return rates.sum(dim=-1)   # [batch_size, num_links]
+
