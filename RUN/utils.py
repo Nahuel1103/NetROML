@@ -214,7 +214,8 @@ def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
             denominator -= numerator 
             denominator = denominator*p_i.unsqueeze(-1)/p0
             denominator += sigma
-            total_snr += numerator / denominator    # acumulamos los SINRs de cada canal
+            snr_ch = numerator / denominator
+            total_snr += snr_ch.squeeze(-1)    # acumulamos los SINRs de cada canal
     
     rates = torch.log(total_snr + 1)
             
