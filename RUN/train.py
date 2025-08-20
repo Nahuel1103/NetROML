@@ -35,37 +35,47 @@ from utils import nuevo_get_rates
 from utils import graphs_to_tensor_synthetic
 
 
-def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5, K=3, batch_size=64, epochs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100, p0 = 4, sigma = 1e-4):   
+def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
+        batch_size=64, epochs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100,
+        p0=4, sigma=1e-4):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
-    mu_lr_str= str(f"{mu_lr:.0e}")
+    mu_lr_str = str(f"{mu_lr:.0e}")
 
     if synthetic:
-        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(num_links=num_links,num_features=1, b5g=b5g, building_id=building_id)
+        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
+            num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
+        )
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
     else:
-        x_tensor, channel_matrix_tensor = graphs_to_tensor(train=True, num_links=num_links, num_features=1, b5g=b5g, building_id=building_id)
+        x_tensor, channel_matrix_tensor = graphs_to_tensor(
+            train=True, num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
+        )
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     mu_k = torch.ones((1, 1), requires_grad=False)
-    epochs = epochs
 
-    # pmax = num_links
-    pmax = num_links*num_channels
+    pmax = num_links * num_channels
 
+    # ---- Definición de red ----
     input_dim = 1
     hidden_dim = 1
-    output_dim = (num_channels + 1) + 1  # canales + 1 off, y una salida extra para potencia 
-    num_layers = num_layers
+
+    # Definí los niveles de potencia discretos
+    power_levels = torch.tensor([p0/2, p0])   # ej. 2 niveles
+    num_power_levels = len(power_levels)
+
+    # Número total de acciones: no_tx + (canales * niveles de potencia)
+    num_actions = 1 + num_channels * num_power_levels
+
+    output_dim = num_actions
     dropout = False
-    K = K
     
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
-
-    optimizer = optim.Adam(gnn_model.parameters(), lr= mu_lr)
+    optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
 
     objective_function_values = []
     power_constraint_values = []
@@ -73,33 +83,42 @@ def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5,
     mu_k_values = []
     probs_values = []   
 
-
     for epoc in range(epochs):
         print("Epoch number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
     
             channel_matrix_batch = data.matrix
             channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) # [64, 5, 5]
-            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr) # [320, 5]
-            psi = psi.view(batch_size, num_links, output_dim) # [64, 5, 5]
+            
+            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)   # [batch*num_links, num_actions]
+            psi = psi.view(batch_size, num_links, output_dim)                  # [batch, num_links, num_actions]
           
-            # Separa en parte discreta y continua
-            probs = torch.softmax(psi[:,:,:num_channels+1], dim=-1)   # [batch, num_links, num_channels+1]
-            powers = torch.sigmoid(psi[:,:,-1]) * p0   # [batch, num_links], potencia continua en [0,p0]
+            # Distribución sobre acciones
+            probs = torch.softmax(psi, dim=-1)  # [batch, num_links, num_actions]
 
-            # Muestras el canal
-            dist = torch.distributions.Categorical(probs=probs)  
-            actions = dist.sample()
-            log_p = dist.log_prob(actions)     # [64, 5]
-            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)       # [64,1]
+            # Muestreamos acciones
+            dist = torch.distributions.Categorical(probs=probs)
+            actions = dist.sample()                           # [batch, num_links]
+            log_p = dist.log_prob(actions)                    # [batch, num_links]
+            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)        # [batch, 1]
 
+            # Construimos phi [batch, num_links, num_channels]
             phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)
-            active_mask = (actions > 0)
-            active_channels = actions[active_mask] - 1
-            phi[active_mask, active_channels] = powers[active_mask]   # asigna potencia aprendida
 
-            # Calcula constraint
-            power_constr = power_constraint(phi, pmax).unsqueeze(-1)  # [batch_size,1]
+            # Máscara de los que transmiten (acción != 0)
+            active_mask = (actions > 0)
+
+            if active_mask.any():
+                # Para los que transmiten: calcular canal y potencia
+                actions_active = actions[active_mask] - 1                  # [N_activos]
+                channel_idx = actions_active // num_power_levels           # índice del canal
+                power_idx   = actions_active % num_power_levels            # índice de nivel de potencia
+
+                # Asignar potencia discreta según el catálogo
+                phi[active_mask, channel_idx] = power_levels.to(phi.device)[power_idx]
+
+            # --- constraint de potencia ---
+            power_constr = power_constraint(phi, pmax).unsqueeze(-1)   # [batch_size, 1]
             power_constr_mean = torch.mean(power_constr, dim=0)
 
             # Calcula rates
@@ -117,19 +136,18 @@ def run(building_id=990, b5g=False, num_links=5, num_channels = 3, num_layers=5,
             loss = cost * log_p_sum                   # [batch_size,1]
             loss_mean = torch.mean(loss, dim=0)
 
-
             loss_mean.backward()
             torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=1.0)
             optimizer.step()
             optimizer.zero_grad()
 
-            if batch_idx%10 == 0:
+            if batch_idx % 10 == 0:
                 probs_values.append(probs.mean(dim=[0,1]).detach().numpy())
                 power_constraint_values.append(power_constr_mean.detach().numpy())
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
                 mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
-    
+
 
     for name, param in gnn_model.named_parameters():
         if param.requires_grad:
