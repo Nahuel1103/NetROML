@@ -89,7 +89,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     
             channel_matrix_batch = data.matrix
             channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) # [64, 5, 5]
-            
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)   # [batch*num_links, num_actions]
             psi = psi.view(batch_size, num_links, output_dim)                  # [batch, num_links, num_actions]
           
@@ -116,6 +115,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
                 # Asignar potencia discreta según el catálogo
                 phi[active_mask, channel_idx] = power_levels.to(phi.device)[power_idx]
+            
 
             # --- constraint de potencia ---
             power_constr = power_constraint(phi, pmax).unsqueeze(-1)   # [batch_size, 1]
