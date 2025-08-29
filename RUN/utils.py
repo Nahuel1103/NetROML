@@ -107,7 +107,7 @@ def transform_matrix(adj_matrix, all = True):
                     H[i,j] = adj_matrix[nodos_tx[i], nodos_rx[receptor_j]]
         return H
     
-def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, building_id=990):
+def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, building_id=990):
     
     band = ['2_4', '5']
     path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
@@ -123,7 +123,7 @@ def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, buil
             graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
-    x = torch.zeros((num_channels,num_features))
+    x = torch.zeros((num_links,num_features))
     for graph in graphs:
         adj_matrix = nx.adjacency_matrix(graph, weight = 'Atenuacion')
         adj_matrix = adj_matrix.toarray()
@@ -137,7 +137,7 @@ def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, buil
     return x_tensor, channel_matrix_tensor
 
 
-def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, building_id = 990):
+def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
     path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
@@ -146,7 +146,7 @@ def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, buil
         graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
-    x = torch.zeros((num_channels,num_features)) 
+    x = torch.zeros((num_links,num_features)) 
     for graph in graphs:
         channel_matrix_list.append(torch.tensor(graph))
         x_list.append(x)
@@ -168,10 +168,11 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor):
         edge_attr = edge_attr.to(torch.float)
         input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
     return input_list
-
 def objective_function(rates):
-    sum_rate = -torch.sum(rates, dim=(1,2))
+    # sumamos solo sobre links
+    sum_rate = -torch.sum(rates, dim=1)  # [batch_size]
     return sum_rate
+
 
 def power_constraint(phi, pmax):
     sum_phi = torch.sum(phi, dim=(1,2))
@@ -184,40 +185,188 @@ def mu_update(mu_k, power_constr, eps):
     mu_k = torch.max(mu_k, torch.tensor(0.0))
     return mu_k
 
-def get_rates(phi, channel_matrix_batch, sigma):
-    phi = torch.squeeze(phi, dim = 2)
-    numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
-    expanded_phi = torch.unsqueeze(phi, dim=2)
-    denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator + sigma
-    rates = torch.log(numerator / denominator + 1)
-    return rates
+# def get_rates(phi, channel_matrix_batch, sigma):
+#     phi = torch.squeeze(phi, dim = 2)
+#     numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
+#     expanded_phi = torch.unsqueeze(phi, dim=2)
+#     denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator + sigma
+#     rates = torch.log(numerator / denominator + 1)
+#     return rates
 
-def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
+# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
+#     """
+#     phi: [batch_size, num_links, num_channels] (potencia por canal)
+#     channel_matrix_batch: [batch_size, num_links, num_links] (ganancias |h_ji|^2)
+#     sigma: ruido (scalar o tensor compatible)
+#     p0: potencia por canal cuando está activo
+#     """
+#     batch_size, num_links, num_channels = phi.shape
+
+#     rates = torch.zeros(batch_size, num_links, num_channels)  
+
+#     # acumulamos SNRs por canal
+#     total_snr = torch.zeros(batch_size, num_links)
+
+#     for ch in range(num_channels):
+#             p_i = phi[:,:,ch]
+#             numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * p_i, dim=2)
+#             expanded_phi = torch.unsqueeze(p_i, dim=2)
+#             denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) 
+#             denominator -= numerator 
+#             denominator = denominator*p_i.unsqueeze(-1)/p0
+#             denominator += sigma
+#             snr_ch = numerator / denominator
+#             total_snr += snr_ch.squeeze(-1)    # acumulamos los SINRs de cada canal
+    
+#     rates = torch.log(total_snr + 1)
+            
+#     return rates
+
+# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3):
+#     """
+#     phi: [batch_size, num_links, num_channels] (potencia por canal)
+#     channel_matrix_batch: [batch_size, num_links, num_links] (ganancias |h_ji|^2)
+#     sigma: ruido (scalar o tensor compatible)
+#     p0: potencia máxima por canal
+#     alpha: factor de interferencia para canales solapados (0 <= alpha <= 1)
+#     """
+#     batch_size, num_links, num_channels = phi.shape
+
+#     # señal útil
+#     diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)  # [batch, links]
+#     signal = diagH.unsqueeze(-1) * phi  # [batch, links, channels]
+
+#     for batch in range(batch_size):
+#         phi_recepcion = phi[batch,:,:]@channel_matrix_batch[batch,:,:]  # [links, channels]
+
+#     # interferencia intra-canal (misma frecuencia)
+#     interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
+
+#     # interferencia por canales solapados (vecinos inmediatos)
+#     interf_overlap = torch.zeros_like(interf_same)
+#     for c in range(num_channels):
+#         if c > 0:
+#             interf_overlap[:,:,c] += torch.einsum('bij,bj->bi', channel_matrix_batch.float(), phi[:,:,c-1].float())
+#         if c < num_channels - 1:
+#             interf_overlap[:,:,c] += torch.einsum('bij,bj->bi', channel_matrix_batch.float(), phi[:,:,c+1].float())
+#     interf_overlap *= alpha
+
+#     # denominador total
+#     denom = sigma + interf_same + interf_overlap
+
+#     # SINR
+#     snr = signal / denom  # [batch, links, channels]
+
+#     # tasa por enlace
+#     rates = torch.sum(torch.log1p(snr), dim=-1)  # [batch, links]
+
+#     return rates
+
+
+
+def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-3, eps=1e-12):
     """
     phi: [batch_size, num_links, num_channels] (potencia por canal)
     channel_matrix_batch: [batch_size, num_links, num_links] (ganancias |h_ji|^2)
     sigma: ruido (scalar o tensor compatible)
-    p0: potencia por canal cuando está activo
+    p0: potencia máxima por canal
+    alpha: factor de interferencia para canales solapados (0 <= alpha <= 1)
+    p_rx_threshold: umbral de potencia recibida para considerar interferencia significativa
+    eps: valor pequeño para evitar divisiones por cero
     """
     batch_size, num_links, num_channels = phi.shape
 
-    rates = torch.zeros(batch_size, num_links, num_channels)  
+    # señal útil
+    diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)  # [batch, links]
+    signal = diagH.unsqueeze(-1) * phi  # [batch, links, channels]
 
-    # acumulamos SNRs por canal
-    total_snr = torch.zeros(batch_size, num_links)
+    # interferencia intra-canal (misma frecuencia)
+    interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
 
-    for ch in range(num_channels):
-            p_i = phi[:,:,ch]
-            numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * p_i, dim=2)
-            expanded_phi = torch.unsqueeze(p_i, dim=2)
-            denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) 
-            denominator -= numerator 
-            denominator = denominator*p_i.unsqueeze(-1)/p0
-            denominator += sigma
-            snr_ch = numerator / denominator
-            total_snr += snr_ch.squeeze(-1)    # acumulamos los SINRs de cada canal
-    
-    rates = torch.log(total_snr + 1)
-            
+    # interferencia por canales solapados
+    interf_overlap = torch.zeros_like(interf_same)
+    for c in range(num_channels):
+        if c > 0:
+            interf_overlap[:,:,c] += torch.einsum('bij,bj->bi', channel_matrix_batch.float(), phi[:,:,c-1].float())
+        if c < num_channels - 1:
+            interf_overlap[:,:,c] += torch.einsum('bij,bj->bi', channel_matrix_batch.float(), phi[:,:,c+1].float())
+    interf_overlap *= alpha
+
+    # denominador total
+    denom = sigma + interf_same + interf_overlap
+
+    # SINR inicial
+    snr = signal / (denom + eps)  # [batch, links, channels]
+
+    # Verificar colisiones por canal
+    for c in range(num_channels):
+        # Potencia recibida para cada par tx-rx en este canal
+        p_rx = channel_matrix_batch * phi[:,:,c].unsqueeze(1)  # [batch, rx, tx]
+        
+        # Máscaras de transmisores activos y potencias significativas
+        active_tx = phi[:,:,c] > eps  # [batch, tx]
+        significant_rx = p_rx >= p_rx_threshold  # [batch, rx, tx]
+        
+        # Contar cuántos transmisores significativos hay para cada receptor
+        interferers_count = (significant_rx & active_tx.unsqueeze(1)).sum(dim=2)  # [batch, rx]
+        
+        # Invalidar SNR donde hay más de un transmisor significativo
+        invalid_rx = interferers_count > 1  # [batch, rx]
+        snr[:,:,c] = snr[:,:,c] * (~invalid_rx).float()
+
+    # tasa por enlace
+    rates = torch.sum(torch.log1p(snr), dim=-1)  # [batch, links]
+
     return rates
 
+# def nuevo_get_rates(phi, channel_matrix_batch, sigma,
+#                                     p0=4, alpha=0.3, p_rx_threshold=1e-3, eps=1e-12):
+#     """
+#     Igual que antes pero:
+#     - Si en un canal, para un receptor i, hay >=2 transmisores j tales que
+#       h_{i<-j} * p_jc >= p_rx_threshold (y p_jc > eps), entonces la recepción
+#       en ese receptor-can al es inválida (se cuenta 0 rate para ese canal).
+#     """
+#     batch_size, num_links, num_channels = phi.shape
+
+#     # señal útil
+#     diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)  # [B, links]
+#     signal = diagH.unsqueeze(-1) * phi                            # [B, links, channels]
+
+#     # interferencia misma frecuencia
+#     interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
+
+#     # interferencia por canales solapados (vecinos inmediatos)
+#     interf_overlap = torch.zeros_like(interf_same)
+#     for c in range(num_channels):
+#         if c > 0:
+#             interf_overlap[:, :, c] += torch.einsum('bij,bj->bi', channel_matrix_batch.float(), phi[:, :, c-1].float())
+#         if c < num_channels - 1:
+#             interf_overlap[:, :, c] += torch.einsum('bij,bj->bi', channel_matrix_batch.float(), phi[:, :, c+1].float())
+#     interf_overlap *= alpha
+
+#     # denominador total por canal
+#     denom = sigma + interf_same + interf_overlap   # [B, links, channels]
+
+#     # SINR por canal
+#     snr = signal / (denom + eps)                   # [B, links, channels]
+
+#     for c in range(num_channels):
+#         p_ch = phi[:, :, c]                         # [B, L] potencia de cada tx en canal c
+#         recv_power = channel_matrix_batch * p_ch.unsqueeze(1) 
+
+#         tx_active = p_ch > eps                      # [B, L]
+#         seen = (recv_power >= p_rx_threshold) & (tx_active.unsqueeze(1))
+
+#         seen_count = seen.sum(dim=-1)               # [B, L]  (sum sobre j)
+
+#         # inválido si hay 2 o más vistos
+#         invalid = seen_count >= 2                   # [B, L]
+
+#         # anular SINR en ese canal para los receptores inválidos
+#         # (multiplicando por 0 la matriz snr[:, :, c])
+#         snr[:, :, c] = snr[:, :, c] * (invalid).float()
+
+#     # tasa por enlace: sumamos log(1+SNR) sobre canales
+#     rates = torch.sum(torch.log1p(snr), dim=-1)      # [B, L]
+#     return rates
