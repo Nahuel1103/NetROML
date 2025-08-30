@@ -58,8 +58,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
     mu_k = torch.ones((1, 1), requires_grad=False)
 
-    pmax = num_links * num_channels
-
     # ---- Definición de red ----
     input_dim = 1
     hidden_dim = 1
@@ -75,13 +73,15 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     dropout = False
     
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
-    optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
+    # optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
+    optimizer = optim.Adam(gnn_model.parameters(), lr=1e-2)
 
     objective_function_values = []
-    power_constraint_values = []
     loss_values = []
-    mu_k_values = []
     probs_values = []   
+    power_constraint_values = []
+    mu_k_values = []
+
 
     for epoc in range(epochs):
         print("Epoch number: {}".format(epoc))
@@ -90,63 +90,59 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             optimizer.zero_grad()
     
             channel_matrix_batch = data.matrix
-            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) # [64, 5, 5]
-            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)   # [batch*num_links, num_actions]
-            psi = psi.view(batch_size, num_links, output_dim)                  # [batch, num_links, num_actions]
+            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links)
+
+            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)   
+            psi = psi.view(batch_size, num_links, output_dim)                  
           
             # Distribución sobre acciones
-            probs = torch.softmax(psi, dim=-1)  # [batch, num_links, num_actions]
+            probs = torch.softmax(psi, dim=-1)  
 
             # Muestreamos acciones
             dist = torch.distributions.Categorical(probs=probs)
-            actions = dist.sample()                           # [batch, num_links]
-            log_p = dist.log_prob(actions)                    # [batch, num_links]
-            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)        # [batch, 1]
+            actions = dist.sample()                           
+            log_p = dist.log_prob(actions)                    
+            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)        
 
-            # Construimos phi [batch, num_links, num_channels]
             phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)
 
-            # Máscara de los que transmiten (acción != 0)
+            # Máscara de los que transmiten
             active_mask = (actions > 0)
 
             if active_mask.any():
-                # Para los que transmiten: calcular canal y potencia
-                actions_active = actions[active_mask] - 1                  # [N_activos]
-                channel_idx = actions_active // num_power_levels           # índice del canal
-                power_idx   = actions_active % num_power_levels            # índice de nivel de potencia
+                # índices de batch y de link de los activos
+                batch_ids, link_ids = torch.nonzero(active_mask, as_tuple=True)
 
-                # Asignar potencia discreta según el catálogo
-                phi[active_mask, channel_idx] = power_levels.to(phi.device)[power_idx]
-            
-            # --- constraint de potencia ---
-            power_constr = power_constraint(phi, pmax).unsqueeze(-1)   # [batch_size, 1]
-            power_constr_mean = torch.mean(power_constr, dim=0)
+                # acción elegida para esos activos (shift -1 porque 0 era "no transmitir")
+                actions_active = actions[batch_ids, link_ids] - 1  
+
+                # separar en canal y potencia
+                channel_idx = actions_active // num_power_levels
+                power_idx   = actions_active %  num_power_levels
+
+                # asignar potencia al canal correcto
+                phi[batch_ids, link_ids, channel_idx] = power_levels.to(phi.device)[power_idx]
 
             # Calcula rates
-            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma)  # [batch_size, num_links]
+            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma)  
 
             # Objective
-            sum_rate = objective_function(rates).unsqueeze(-1)  # [batch_size,1]
+            sum_rate = objective_function(rates).unsqueeze(-1)  
             sum_rate_mean = torch.mean(sum_rate, dim=0)
 
-            # Actualización de mu
-            mu_k = mu_update(mu_k, power_constr, eps)
-
-            # Cálculo del costo y backprop
-            cost = sum_rate + (power_constr * mu_k)   # [batch_size,1]
-            loss = cost * log_p_sum                   # [batch_size,1]
+            # Cálculo del costo y backprop - ahora solo considera sum_rate
+            loss = sum_rate * log_p_sum                   
             loss_mean = torch.mean(loss, dim=0)
 
             loss_mean.backward()
+            torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=1.0)
             optimizer.step()
-            
 
             if batch_idx % 10 == 0:
                 probs_values.append(probs.mean(dim=[0,1]).detach().numpy())
-                power_constraint_values.append(power_constr_mean.detach().numpy())
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
-                mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
+
 
 
     for name, param in gnn_model.named_parameters():
