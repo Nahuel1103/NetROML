@@ -29,14 +29,15 @@ from utils import get_gnn_inputs
 from utils import power_constraint
 from utils import objective_function
 from utils import mu_update
-# from utils import channel_constraint
+from utils import power_constraint_per_ap
 from utils import nuevo_get_rates
+from utils import mu_update_per_ap
 
 from utils import graphs_to_tensor_synthetic
 
 
 def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
-        batch_size=64, epochs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100,
+        batch_size=64, epochs=100, eps=5e-5, mu_lr=1e-5, synthetic=1, rn=100, rn1=100,
         p0=4, sigma=1e-4):   
 
     banda = ['2_4', '5']
@@ -56,7 +57,9 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-    mu_k = torch.ones((1, 1), requires_grad=False)
+    mu_k = torch.ones((num_links,), requires_grad=False)  # [num_links]
+
+    pmax_per_ap = p0 * num_channels
 
     # ---- Definición de red ----
     input_dim = 1
@@ -73,16 +76,16 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     dropout = False
     
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
-    # optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
-    optimizer = optim.Adam(gnn_model.parameters(), lr=1e-2)
+    optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
 
     objective_function_values = []
-    loss_values = []
-    probs_values = []   
     power_constraint_values = []
+    power_constraint_per_ap_values = []  # Nueva lista
+    loss_values = []
     mu_k_values = []
+    probs_values = []   
 
-
+  #  ------------- Training -----------------
     for epoc in range(epochs):
         print("Epoch number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
@@ -91,58 +94,55 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     
             channel_matrix_batch = data.matrix
             channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links)
-
-            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)   
-            psi = psi.view(batch_size, num_links, output_dim)                  
+            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
+            psi = psi.view(batch_size, num_links, output_dim)
           
             # Distribución sobre acciones
-            probs = torch.softmax(psi, dim=-1)  
-
-            # Muestreamos acciones
+            probs = torch.softmax(psi, dim=-1)
             dist = torch.distributions.Categorical(probs=probs)
-            actions = dist.sample()                           
-            log_p = dist.log_prob(actions)                    
-            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)        
+            actions = dist.sample()
+            log_p = dist.log_prob(actions)
+            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)
 
+            # Construir phi
             phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)
-
-            # Máscara de los que transmiten
             active_mask = (actions > 0)
-
             if active_mask.any():
-                # índices de batch y de link de los activos
-                batch_ids, link_ids = torch.nonzero(active_mask, as_tuple=True)
-
-                # acción elegida para esos activos (shift -1 porque 0 era "no transmitir")
-                actions_active = actions[batch_ids, link_ids] - 1  
-
-                # separar en canal y potencia
+                actions_active = actions[active_mask] - 1
                 channel_idx = actions_active // num_power_levels
-                power_idx   = actions_active %  num_power_levels
-
-                # asignar potencia al canal correcto
-                phi[batch_ids, link_ids, channel_idx] = power_levels.to(phi.device)[power_idx]
+                power_idx   = actions_active % num_power_levels
+                phi[active_mask, channel_idx] = power_levels.to(phi.device)[power_idx]
+            
+            power_constr_per_ap = power_constraint_per_ap(phi, pmax_per_ap)  # [batch_size, num_links]
+            power_constr_per_ap_mean = torch.mean(power_constr_per_ap, dim=0)  # [num_links]
 
             # Calcula rates
-            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma)  
+            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma)
 
             # Objective
-            sum_rate = objective_function(rates).unsqueeze(-1)  
+            sum_rate = objective_function(rates).unsqueeze(-1)  # [batch_size, 1]
             sum_rate_mean = torch.mean(sum_rate, dim=0)
 
-            # Cálculo del costo y backprop - ahora solo considera sum_rate
-            loss = sum_rate * log_p_sum                   
+            # Actualización de mu (por AP)
+            mu_k = mu_update_per_ap(mu_k, power_constr_per_ap, eps)
+
+            # Cálculo del costo con penalización por AP
+            penalty_per_ap = power_constr_per_ap * mu_k.unsqueeze(0)  # [batch_size, num_links]
+            total_penalty = penalty_per_ap.sum(dim=1).unsqueeze(-1)   # [batch_size, 1]
+            
+            cost = sum_rate + total_penalty   # [batch_size, 1]
+            loss = cost * log_p_sum          # [batch_size, 1]
             loss_mean = torch.mean(loss, dim=0)
 
             loss_mean.backward()
-            torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=1.0)
             optimizer.step()
-
+            
             if batch_idx % 10 == 0:
                 probs_values.append(probs.mean(dim=[0,1]).detach().numpy())
+                power_constraint_per_ap_values.append(power_constr_per_ap_mean.detach().numpy())
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
-
+                mu_k_values.append(mu_k.detach().numpy())
 
 
     for name, param in gnn_model.named_parameters():

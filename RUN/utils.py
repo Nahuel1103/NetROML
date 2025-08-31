@@ -162,7 +162,7 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor):
         channel_matrix = channel_matrix_tensor[i,:,:]
         norm = np.linalg.norm(channel_matrix, ord = 2, axis = (0,1))
         channel_matrix_norm = channel_matrix / norm
-        # channel_matrix_norm = channel_matrix
+        channel_matrix_norm = channel_matrix
         edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
         edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]]
         edge_attr = edge_attr.to(torch.float)
@@ -170,7 +170,6 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor):
     return input_list
 
 def objective_function(rates):
-    # sumamos solo sobre links
     sum_rate = -torch.sum(rates, dim=1)  # [batch_size]
     return sum_rate
 
@@ -178,6 +177,17 @@ def objective_function(rates):
 def power_constraint(phi, pmax):
     sum_phi = torch.sum(phi, dim=(1,2))
     return (sum_phi - pmax)
+
+def power_constraint_per_ap(phi, pmax_per_ap):
+    sum_phi_per_link = torch.sum(phi, dim=2)  # Suma solo sobre canales: [batch_size, num_links]
+    return (sum_phi_per_link - pmax_per_ap)
+
+def mu_update_per_ap(mu_k, power_constr_per_ap, eps):
+    mu_k = mu_k.detach()
+    mu_k_update = eps * torch.mean(power_constr_per_ap, dim=0)  # Promedio sobre batch: [num_links]
+    mu_k = mu_k + mu_k_update
+    mu_k = torch.max(mu_k, torch.tensor(0.0))
+    return mu_k
 
 def mu_update(mu_k, power_constr, eps):
     mu_k = mu_k.detach()
