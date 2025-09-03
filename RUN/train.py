@@ -26,9 +26,7 @@ from plot_results_torch import plot_results
 from gnn import GNN
 from utils import graphs_to_tensor
 from utils import get_gnn_inputs
-from utils import power_constraint
 from utils import objective_function
-from utils import mu_update
 from utils import power_constraint_per_ap
 from utils import nuevo_get_rates
 from utils import mu_update_per_ap
@@ -37,7 +35,7 @@ from utils import graphs_to_tensor_synthetic
 
 
 def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
-        batch_size=64, epochs=100, eps=5e-5, mu_lr=1e-5, synthetic=1, rn=100, rn1=100,
+        batch_size=64, epochs=100, eps=5e-4, mu_lr=1e-4, synthetic=1, rn=100, rn1=100,
         p0=4, sigma=1e-4):   
 
     banda = ['2_4', '5']
@@ -57,55 +55,60 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-    mu_k = torch.ones((num_links,), requires_grad=False)  # [num_links]
 
-    pmax_per_ap = p0 * num_channels
+
+    mu_k = torch.ones((num_links,), requires_grad=False)  # [num_links]
+    # pmax_per_ap = p0*4/5* torch.ones((num_links,))  # [num_links]
+    pmax_per_ap = p0/3* torch.ones((num_links,))  # [num_links]
+
 
     # ---- Definición de red ----
     input_dim = 1
-    hidden_dim = 1
+    hidden_dim = 3  # Escala con el número de enlaces
 
-    # Definí los niveles de potencia discretos
-    power_levels = torch.tensor([p0/2, p0])   # ej. 2 niveles
+    power_levels = torch.tensor([p0/2, p0])   
     num_power_levels = len(power_levels)
 
-    # Número total de acciones: no_tx + (canales * niveles de potencia)
+    # Calcular num_actions dinámicamente
     num_actions = 1 + num_channels * num_power_levels
-
     output_dim = num_actions
     dropout = False
     
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
     optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
 
+
+    for name, param in gnn_model.named_parameters():
+        param.requires_grad = True
+        if param.requires_grad:
+            print(name, param.data)
+
+
     objective_function_values = []
     power_constraint_values = []
-    power_constraint_per_ap_values = []  # Nueva lista
+    power_constraint_per_ap_values = []  
     loss_values = []
     mu_k_values = []
     probs_values = []   
 
   #  ------------- Training -----------------
     for epoc in range(epochs):
+
         print("Epoch number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
-
-            optimizer.zero_grad()
     
             channel_matrix_batch = data.matrix
             channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links)
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
             psi = psi.view(batch_size, num_links, output_dim)
-          
-            # Distribución sobre acciones
+
             probs = torch.softmax(psi, dim=-1)
             dist = torch.distributions.Categorical(probs=probs)
             actions = dist.sample()
             log_p = dist.log_prob(actions)
             log_p_sum = log_p.sum(dim=1).unsqueeze(-1)
 
-            # Construir phi
-            phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)
+            phi = torch.zeros(batch_size, num_links, num_channels)
             active_mask = (actions > 0)
             if active_mask.any():
                 actions_active = actions[active_mask] - 1
@@ -114,29 +117,26 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
                 phi[active_mask, channel_idx] = power_levels.to(phi.device)[power_idx]
             
             power_constr_per_ap = power_constraint_per_ap(phi, pmax_per_ap)  # [batch_size, num_links]
-            power_constr_per_ap_mean = torch.mean(power_constr_per_ap, dim=0)  # [num_links]
+            power_constr_per_ap_mean = torch.mean(power_constr_per_ap, dim=(0,1))  # [num_links]
 
-            # Calcula rates
             rates = nuevo_get_rates(phi, channel_matrix_batch, sigma)
 
-            # Objective
-            sum_rate = objective_function(rates).unsqueeze(-1)  # [batch_size, 1]
+            sum_rate = -objective_function(rates).unsqueeze(-1)  # [batch_size, 1]
             sum_rate_mean = torch.mean(sum_rate, dim=0)
 
-            # Actualización de mu (por AP)
-            mu_k = mu_update_per_ap(mu_k, power_constr_per_ap, eps)
+            mu_k = mu_update_per_ap(mu_k, power_constr_per_ap, eps) # [num_links]
 
-            # Cálculo del costo con penalización por AP
             penalty_per_ap = power_constr_per_ap * mu_k.unsqueeze(0)  # [batch_size, num_links]
             total_penalty = penalty_per_ap.sum(dim=1).unsqueeze(-1)   # [batch_size, 1]
-            
-            cost = sum_rate + total_penalty   # [batch_size, 1]
-            loss = cost * log_p_sum          # [batch_size, 1]
-            loss_mean = torch.mean(loss, dim=0)
 
+            cost = sum_rate + total_penalty  
+            
+            loss = cost * log_p_sum        
+            loss_mean = loss.mean()
+            optimizer.zero_grad()
             loss_mean.backward()
             optimizer.step()
-            
+
             if batch_idx % 10 == 0:
                 probs_values.append(probs.mean(dim=[0,1]).detach().numpy())
                 power_constraint_per_ap_values.append(power_constr_per_ap_mean.detach().numpy())
@@ -162,7 +162,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             rn1=rn1,
             eps=eps,
             objective_function_values=objective_function_values,
-            power_constraint_values=power_constraint_values,
+            power_constraint_values=power_constraint_per_ap_values,
             loss_values=loss_values,
             mu_k_values=mu_k_values,
             train=True
@@ -174,7 +174,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
     # save trained gnn weights in .pth
     torch.save(gnn_model.state_dict(), path + 'gnn_model_weights.pth')
-        
+
 if __name__ == '__main__':
     import argparse
 
@@ -187,20 +187,20 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description= 'System configuration')
 
-    parser.add_argument('--building_id', type=int, default=990)
+    parser.add_argument('--building_id', type=int, default=856)
     parser.add_argument('--b5g', type=int, default=0)
-    parser.add_argument('--num_links', type=int, default=5)
+    parser.add_argument('--num_links', type=int, default=20)
     parser.add_argument('--num_channels', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=150)
+    parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--eps', type=float, default=5e-5)
-    parser.add_argument('--mu_lr', type=float, default=5e-5)
+    parser.add_argument('--eps', type=float, default=5e-4)
+    parser.add_argument('--mu_lr', type=float, default=5e-4)
     parser.add_argument('--synthetic', type=int, default=0)
 
     args = parser.parse_args()
-    
+
     print(f'building_id: {args.building_id}')
     print(f'b5g: {args.b5g}')
     print(f'num_links: {args.num_links}')
@@ -213,7 +213,7 @@ if __name__ == '__main__':
     print(f'mu_lr: {args.mu_lr}')
     print(f'synthetic: {args.synthetic}')
 
-    
+
 
     run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
     

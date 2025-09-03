@@ -130,16 +130,37 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         # image_path = os.path.join(path, image_name)
         # plt.savefig(image_path)
         # plt.close()
-    
-    if (len(normalized_psi_values) > 0):
-        plt.figure(figsize=(16,9))
-        plt.plot(normalized_psi_values)
-        plt.grid()
-        image_name = 'policies.png'
-        image_path = os.path.join(path, image_name)
-        plt.savefig(image_path)
-        plt.close()
 
+
+        if (len(normalized_psi_values) > 0):
+            # Generar nombres para las 7 políticas
+            nombres_politicas = [
+                'Apagado (potencia 0)',
+                'Canal 0 con potencia p0/2',
+                'Canal 1 con potencia p0/2', 
+                'Canal 2 con potencia p0/2',
+                'Canal 0 con potencia p0',
+                'Canal 1 con potencia p0',
+                'Canal 2 con potencia p0'
+            ]
+
+            normalized_psi_value = np.array(normalized_psi_values)
+            plt.figure(figsize=(16, 9))
+            
+            # Graficar cada política (cada columna de la matriz)
+            for i in range(normalized_psi_value.shape[1]):  # Iterar sobre las 7 columnas
+                plt.plot(normalized_psi_value[:, i], label=nombres_politicas[i])
+            
+            plt.grid()
+            plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            plt.xlabel('Tiempo')
+            plt.ylabel('Valor de Política Normalizado')
+            plt.title('Políticas de Asignación de Potencia por Canal')
+            
+            image_name = 'policies.png'
+            image_path = os.path.join(path, image_name)
+            plt.savefig(image_path, bbox_inches='tight')
+            plt.close()
 
     normalized_psi= torch.mean(normalized_psi, dim=0)
     normalized_psi_array = normalized_psi.detach().numpy()
