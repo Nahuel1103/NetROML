@@ -110,7 +110,7 @@ def transform_matrix(adj_matrix, all = True):
 def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, building_id=990):
     
     band = ['2_4', '5']
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    path = '/Users/mauriciovieirarodriguez/project/NetROML/Primer problema de optimización/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
 
     if (train):
         file_name = 'train_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
@@ -140,7 +140,7 @@ def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, buildin
 def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/graph/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    path = '/Users/mauriciovieirarodriguez/project/NetROML/Primer problema de optimización/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
     file_name = 'synthetic_graphs.pkl'
     with open(path + file_name, 'rb') as archivo:
         graphs = pickle.load(archivo)
