@@ -59,12 +59,12 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
     mu_k = torch.ones((num_links,), requires_grad=False)  # [num_links]
     # pmax_per_ap = p0*4/5* torch.ones((num_links,))  # [num_links]
-    pmax_per_ap = p0/3* torch.ones((num_links,))  # [num_links]
+    pmax_per_ap = p0/2* torch.ones((num_links,))  # [num_links]
 
 
     # ---- Definición de red ----
     input_dim = 1
-    hidden_dim = 3  # Escala con el número de enlaces
+    hidden_dim = 1  # Escala con el número de enlaces
 
     power_levels = torch.tensor([p0/2, p0])   
     num_power_levels = len(power_levels)
@@ -85,7 +85,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
 
     objective_function_values = []
-    power_constraint_values = []
     power_constraint_per_ap_values = []  
     loss_values = []
     mu_k_values = []
@@ -102,8 +101,17 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
             psi = psi.view(batch_size, num_links, output_dim)
 
+            # probs = torch.softmax(psi, dim=-1)
+            # dist = torch.distributions.Categorical(probs=probs)
             probs = torch.softmax(psi, dim=-1)
+            # evitar ceros totales y NaN:
+            probs = torch.clamp(probs, min=1e-8)             # evita ceros exactos
+            probs = probs / probs.sum(dim=-1, keepdim=True)  # renormaliza (ahora suma 1)
+            # doble chequeo defensa:
+            if not torch.all(torch.isfinite(probs)):
+                probs = torch.where(torch.isfinite(probs), probs, torch.ones_like(probs) / probs.size(-1))
             dist = torch.distributions.Categorical(probs=probs)
+
             actions = dist.sample()
             log_p = dist.log_prob(actions)
             log_p_sum = log_p.sum(dim=1).unsqueeze(-1)
@@ -190,11 +198,11 @@ if __name__ == '__main__':
     parser.add_argument('--building_id', type=int, default=856)
     parser.add_argument('--b5g', type=int, default=0)
     parser.add_argument('--num_links', type=int, default=20)
-    parser.add_argument('--num_channels', type=int, default=3)
+    parser.add_argument('--num_channels', type=int, default=11)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--epochs', type=int, default=150)
+    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
     parser.add_argument('--synthetic', type=int, default=0)

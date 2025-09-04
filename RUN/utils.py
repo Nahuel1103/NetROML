@@ -173,7 +173,6 @@ def objective_function(rates):
     sum_rate = torch.sum(rates, dim=1)  
     return sum_rate
 
-
 def power_constraint_per_ap(phi, pmax_per_ap):
     sum_phi_per_link = torch.sum(phi, dim=2)  
     return (sum_phi_per_link - pmax_per_ap)
