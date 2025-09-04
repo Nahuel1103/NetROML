@@ -131,30 +131,50 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         # plt.savefig(image_path)
         # plt.close()
 
-
-        if (len(normalized_psi_values) > 0):
-            # Generar nombres para las 7 políticas
-            # nombres_politicas = [
-            #     'Apagado (potencia 0)',
-            #     'Canal 0 con potencia p0/2',
-            #     'Canal 1 con potencia p0/2', 
-            #     'Canal 2 con potencia p0/2',
-            #     'Canal 0 con potencia p0',
-            #     'Canal 1 con potencia p0',
-            #     'Canal 2 con potencia p0'
-            # ]
-
+        if len(normalized_psi_values) > 0:
             normalized_psi_value = np.array(normalized_psi_values)
+            
+            # Ensure the array is 2D (even if there's only one policy)
+            if len(normalized_psi_value.shape) == 1:
+                normalized_psi_value = normalized_psi_value.reshape(-1, 1)
+            
+            n_policies = normalized_psi_value.shape[1]  # Number of policies
+
+            # Generate labels dynamically
+            nombres_politicas = []
+            if n_policies == 1:
+                nombres_politicas = ['Apagado (potencia 0)']
+            else:
+                # Assume the first policy is "Apagado"
+                nombres_politicas.append('Apagado (potencia 0)')
+                
+                # Calculate num_channels and num_levels such that num_channels * num_levels = n_policies - 1
+                # and num_channels > num_levels
+                remaining_policies = n_policies - 1
+                num_levels = 1
+                num_channels = remaining_policies
+                
+                # Find the largest possible num_levels where num_channels > num_levels
+                for i in range(2, int(remaining_policies**0.5) + 1):
+                    if remaining_policies % i == 0:
+                        if remaining_policies // i > i:
+                            num_levels = i
+                            num_channels = remaining_policies // i
+                
+                # Generate labels grouped by power level first, then channel
+                for nivel in range(1, num_levels + 1):
+                    potencia = f"p0/{nivel+1}" if nivel != num_levels else "p0"
+                    for canal in range(num_channels):
+                        nombres_politicas.append(f"Canal {canal} con potencia {potencia}")
+
             plt.figure(figsize=(16, 9))
             
-            # Graficar cada política (cada columna de la matriz)
-            for i in range(normalized_psi_value.shape[1]):  # Iterar sobre las 7 columnas
-                # plt.plot(normalized_psi_value[:, i], label=nombres_politicas[i])
-                plt.plot(normalized_psi_value[:, i])
+            # Plot each policy
+            for i in range(n_policies):
+                plt.plot(normalized_psi_value[:, i], label=nombres_politicas[i])
 
-            
             plt.grid()
-            # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
             plt.xlabel('Tiempo')
             plt.ylabel('Valor de Política Normalizado')
             plt.title('Políticas de Asignación de Potencia por Canal')
