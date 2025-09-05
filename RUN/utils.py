@@ -225,6 +225,6 @@ def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3):
     snr = signal / denom
 
     # tasa por enlace
-    rates = torch.sum(torch.log1p(snr), dim=-1)  # [batch, links]
+    rates = torch.log1p(torch.sum(snr, dim=-1)) # [batch, links]
 
     return rates

@@ -58,7 +58,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
     mu_k = torch.ones((1, 1), requires_grad=False)
 
-    pmax = num_links * num_channels
+    pmax = 4
 
     # ---- Definición de red ----
     input_dim = 1
@@ -68,10 +68,16 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     power_levels = torch.tensor([0, p0/2, p0])
     num_power_levels = len(power_levels)
 
-    # Número total de acciones: no_tx + (canales * niveles de potencia)
-    num_actions = num_channels * num_power_levels
+    # Definí los niveles de potencia discretos
+    power_levels = torch.tensor([0, p0/2, p0])  # Incluimos 0 = no transmitir
+    num_power_levels = len(power_levels)
 
-    output_dim = num_actions
+    # Arquitectura: 3 decisiones independientes
+    # - Decisión 1: transmitir/no transmitir (2 opciones)
+    # - Decisión 2: canal (num_channels opciones) 
+    # - Decisión 3: potencia (num_power_levels opciones)
+    output_dim = 2 + num_channels + num_power_levels
+
     dropout = False
     
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
@@ -81,7 +87,9 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     power_constraint_values = []
     loss_values = []
     mu_k_values = []
-    probs_values = []   
+    tx_policy_values = []      # Cada elemento: [P(no_tx), P(tx)]
+    channel_policy_values = [] # Cada elemento: [P(canal_0), P(canal_1), P(canal_2)]
+    power_policy_values = []   # Cada elemento: [P(p0/2), P(p0)] 
 
     for epoc in range(epochs):
         print("Epoch number: {}".format(epoc))
@@ -92,30 +100,51 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)   # [batch*num_links, num_actions]
             psi = psi.view(batch_size, num_links, output_dim)                  # [batch, num_links, num_actions]
           
-            # Distribución sobre acciones
-            probs = torch.softmax(psi, dim=-1)  # [batch, num_links, num_actions]
+            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
+            psi = psi.view(batch_size, num_links, output_dim)
 
-            # Muestreamos acciones
-            dist = torch.distributions.Categorical(probs=probs)
-            actions = dist.sample()                           # [batch, num_links]
-            log_p = dist.log_prob(actions)                    # [batch, num_links]
-            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)        # [batch, 1]
+            # Dividir las salidas en 3 decisiones
+            tx_decision_logits = psi[:, :, :2]                                    # [batch, links, 2]
+            channel_decision_logits = psi[:, :, 2:2+num_channels]                # [batch, links, num_channels] 
+            power_decision_logits = psi[:, :, 2+num_channels:]                   # [batch, links, num_power_levels]
 
-            # Construimos phi [batch, num_links, num_channels]
-            phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)
+            # Probabilidades independientes para cada decisión
+            tx_probs = torch.softmax(tx_decision_logits, dim=-1)                 # [batch, links, 2]
+            channel_probs = torch.softmax(channel_decision_logits, dim=-1)       # [batch, links, num_channels]
+            power_probs = torch.softmax(power_decision_logits, dim=-1)           # [batch, links, num_power_levels]
 
-            # Máscara de los que transmiten (acción != 0)
-            active_mask = (actions > 0)
+            # Muestrear cada decisión independientemente
+            tx_dist = torch.distributions.Categorical(probs=tx_probs)
+            channel_dist = torch.distributions.Categorical(probs=channel_probs)
+            power_dist = torch.distributions.Categorical(probs=power_probs)
 
-            if active_mask.any():
-                # Para los que transmiten: calcular canal y potencia
-                actions_active = actions[active_mask] - 1                  # [N_activos]
-                channel_idx = actions_active // num_power_levels           # índice del canal
-                power_idx   = actions_active % num_power_levels            # índice de nivel de potencia
+            tx_actions = tx_dist.sample()          # [batch, links] - 0: no tx, 1: tx
+            channel_actions = channel_dist.sample() # [batch, links] - índice del canal
+            power_actions = power_dist.sample()     # [batch, links] - índice del nivel de potencia
 
-                # Asignar potencia discreta según el catálogo
-                phi[active_mask, channel_idx] = power_levels.to(phi.device)[power_idx]
-            
+            # Log probabilities para el gradiente
+            log_p_tx = tx_dist.log_prob(tx_actions)
+            log_p_channel = channel_dist.log_prob(channel_actions) 
+            log_p_power = power_dist.log_prob(power_actions)
+
+            # Solo contar log_prob si realmente transmite
+            transmit_mask = (tx_actions == 1)
+            log_p_total = log_p_tx.clone()
+            log_p_total[transmit_mask] += log_p_channel[transmit_mask] + log_p_power[transmit_mask]
+            log_p_sum = log_p_total.sum(dim=1).unsqueeze(-1)
+
+            # Construir phi
+            phi = torch.zeros(batch_size, num_links, num_channels, device=psi.device)
+
+            # Solo asignar potencia si decide transmitir
+            transmit_indices = torch.where(transmit_mask)
+            if len(transmit_indices[0]) > 0:
+                batch_idx_tx = transmit_indices[0]
+                link_idx_tx = transmit_indices[1]
+                selected_channels = channel_actions[batch_idx_tx, link_idx_tx]
+                selected_powers = power_actions[batch_idx_tx, link_idx_tx]
+                
+                phi[batch_idx_tx, link_idx_tx, selected_channels] = power_levels.to(phi.device)[selected_powers]
 
             # --- constraint de potencia ---
             power_constr = power_constraint(phi, pmax).unsqueeze(-1)   # [batch_size, 1]
@@ -142,7 +171,9 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             optimizer.zero_grad()
 
             if batch_idx % 10 == 0:
-                probs_values.append(probs.mean(dim=[0,1]).detach().numpy())
+                tx_policy_values.append(tx_probs.mean(dim=[0,1]).detach().numpy())
+                channel_policy_values.append(channel_probs.mean(dim=[0,1]).detach().numpy()) 
+                power_policy_values.append(power_probs.mean(dim=[0,1]).detach().numpy())
                 power_constraint_values.append(power_constr_mean.detach().numpy())
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
@@ -156,8 +187,12 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     path = plot_results(
             building_id=building_id,
             b5g=b5g,
-            normalized_psi=probs,
-            normalized_psi_values=probs_values,
+            tx_probs=tx_probs,
+            channel_probs=channel_probs, 
+            power_probs=power_probs,
+            tx_policy_values=tx_policy_values,
+            channel_policy_values=channel_policy_values,
+            power_policy_values=power_policy_values,
             num_layers=num_layers,
             K=K,
             batch_size=batch_size,
@@ -165,11 +200,15 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             rn=rn,
             rn1=rn1,
             eps=eps,
+            mu_lr=mu_lr,
             objective_function_values=objective_function_values,
             power_constraint_values=power_constraint_values,
             loss_values=loss_values,
             mu_k_values=mu_k_values,
-            train=True
+            train=True,
+            synthetic=synthetic,
+            num_channels=num_channels,
+            num_power_levels=num_power_levels
         )
 
     file_name = path + 'objective_function_values_train_' + str(epochs) + '.pkl'
