@@ -26,24 +26,18 @@ from plot_results_torch import plot_results
 from gnn import GNN
 from utils import graphs_to_tensor
 from utils import get_gnn_inputs
-from utils import objective_function
 from utils import power_constraint_per_ap
+from utils import objective_function
+from utils import mu_update
+# from utils import channel_constraint
 from utils import nuevo_get_rates
-from utils import mu_update_per_ap
 
 from utils import graphs_to_tensor_synthetic
 
 
-DEFAULT_P0 = 11
-DEFAULT_SIGMA = 1e-4
-
-# Definir constante global
-MAX_ANTENNA_POWER_DBM = 6  # 6 dBi
-MAX_ANTENNA_POWER_MW = 10 ** (MAX_ANTENNA_POWER_DBM / 10)  # ≈ 4 mW
-
 def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
-        batch_size=64, epochs=100, eps=5e-4, mu_lr=1e-4, synthetic=1, rn=100, rn1=100,
-        p0=DEFAULT_P0, sigma=DEFAULT_SIGMA, max_antenna_power_dbm=6):   
+        batch_size=64, epochs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100,
+        p0=11, sigma=1e-4):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
@@ -62,78 +56,97 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
+    mu_k = torch.ones(num_links, requires_grad=False)
 
-
-    max_antenna_power_mw = 10 ** (max_antenna_power_dbm / 10)
-    pmax_per_ap = max_antenna_power_mw*0.8* torch.ones((num_links,))
-    mu_k =  torch.ones((num_links,), requires_grad=False)  
-
+    pmax = torch.ones(num_links) * 4*0.8 # [num_links]
 
     # ---- Definición de red ----
     input_dim = 1
-    hidden_dim = 1  # Escala con el número de enlaces
+    hidden_dim = 1
 
-    power_levels = torch.tensor([p0/2, p0])   
+
+    # Definí los niveles de potencia discretos
+    power_levels = torch.tensor([0, p0/2, p0])  # Incluimos 0 = no transmitir
     num_power_levels = len(power_levels)
 
-    # Calcular num_actions dinámicamente
-    num_actions = 1+ num_channels * num_power_levels
-    output_dim = num_actions
+    output_dim = 2 + num_channels + num_power_levels
+
     dropout = False
     
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
     optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
 
-
-    for name, param in gnn_model.named_parameters():
-        param.requires_grad = True
-        if param.requires_grad:
-            print(name, param.data)
-
-
     objective_function_values = []
-    power_constraint_per_ap_values = []  
+    power_constraint_values = []
     loss_values = []
     mu_k_values = []
-    probs_values = []   
+    tx_policy_values = []      # Cada elemento: [P(no_tx), P(tx)]
+    channel_policy_values = [] # Cada elemento: [P(canal_0), P(canal_1), P(canal_2)]
+    power_policy_values = []   # Cada elemento: [P(p0/2), P(p0)] 
 
-  #  ------------- Training -----------------
     for epoc in range(epochs):
-
         print("Epoch number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
     
             channel_matrix_batch = data.matrix
-            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links)
+            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) # [64, 5, 5]
+            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)   # [batch*num_links, num_actions]
+            psi = psi.view(batch_size, num_links, output_dim)                  # [batch, num_links, num_actions]
+          
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
             psi = psi.view(batch_size, num_links, output_dim)
 
-     
-            probs = torch.softmax(psi, dim=-1)
-            probs = torch.clamp(probs, min=1e-8)            
-            probs = probs / probs.sum(dim=-1, keepdim=True) 
-            dist = torch.distributions.Categorical(probs=probs)
+            # Dividir las salidas en 3 decisiones
+            tx_decision_logits = psi[:, :, :2]                                    # [batch, links, 2]
+            channel_decision_logits = psi[:, :, 2:2+num_channels]                # [batch, links, num_channels] 
+            power_decision_logits = psi[:, :, 2+num_channels:]                   # [batch, links, num_power_levels]
 
-            actions = dist.sample()
-            log_p = dist.log_prob(actions)
-            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)
+            # Probabilidades independientes para cada decisión
+            tx_probs = torch.softmax(tx_decision_logits, dim=-1)                 # [batch, links, 2]
+            channel_probs = torch.softmax(channel_decision_logits, dim=-1)       # [batch, links, num_channels]
+            power_probs = torch.softmax(power_decision_logits, dim=-1)           # [batch, links, num_power_levels]
 
-            phi = torch.zeros(batch_size, num_links, num_channels)
-            active_mask = (actions > 0)
-            if active_mask.any():
-                actions_active = actions[active_mask] - 1
-                channel_idx = actions_active // num_power_levels
-                power_idx   = actions_active % num_power_levels
-                phi[active_mask, channel_idx] = power_levels.to(phi.device)[power_idx]
-            
-            power_constr_per_ap = power_constraint_per_ap(phi, pmax_per_ap)  
+            # Muestrear cada decisión independientemente
+            tx_dist = torch.distributions.Categorical(probs=tx_probs)
+            channel_dist = torch.distributions.Categorical(probs=channel_probs)
+            power_dist = torch.distributions.Categorical(probs=power_probs)
+
+            tx_actions = tx_dist.sample()          # [batch, links] - 0: no tx, 1: tx
+            channel_actions = channel_dist.sample() # [batch, links] - índice del canal
+            power_actions = power_dist.sample()     # [batch, links] - índice del nivel de potencia
+
+            # Log probabilities para el gradiente
+            log_p_tx = tx_dist.log_prob(tx_actions)
+            log_p_channel = channel_dist.log_prob(channel_actions) 
+            log_p_power = power_dist.log_prob(power_actions)
+
+            # Solo contar log_prob si realmente transmite
+            transmit_mask = (tx_actions == 1)
+            log_p_total = log_p_tx.clone()
+            log_p_total[transmit_mask] += log_p_channel[transmit_mask] + log_p_power[transmit_mask]
+            log_p_sum = log_p_total.sum(dim=1).unsqueeze(-1)
+
+            # Construir phi
+            phi = torch.zeros(batch_size, num_links, num_channels, device=psi.device)
+
+            # Solo asignar potencia si decide transmitir
+            transmit_indices = torch.where(transmit_mask)
+            if len(transmit_indices[0]) > 0:
+                batch_idx_tx = transmit_indices[0]
+                link_idx_tx = transmit_indices[1]
+                selected_channels = channel_actions[batch_idx_tx, link_idx_tx]
+                selected_powers = power_actions[batch_idx_tx, link_idx_tx]
+                
+                phi[batch_idx_tx, link_idx_tx, selected_channels] = power_levels.to(phi.device)[selected_powers]
+
+            power_constr_per_ap = power_constraint_per_ap(phi, pmax)  # [batch_size, num_links]
             power_constr_per_ap_mean = torch.mean(power_constr_per_ap, dim=(0,1))  
-            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=max_antenna_power_mw)
+            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=p0)
 
             sum_rate = -objective_function(rates).unsqueeze(-1) 
             sum_rate_mean = torch.mean(sum_rate, dim=0)
 
-            mu_k = mu_update_per_ap(mu_k, power_constr_per_ap, eps) 
+            mu_k = mu_update(mu_k, power_constr_per_ap, eps) 
 
             penalty_per_ap = power_constr_per_ap * mu_k.unsqueeze(0)  
             total_penalty = penalty_per_ap.sum(dim=1).unsqueeze(-1)   
@@ -146,12 +159,16 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             loss_mean.backward()
             optimizer.step()
 
+
             if batch_idx % 10 == 0:
-                probs_values.append(probs.mean(dim=[0,1]).detach().numpy())
-                power_constraint_per_ap_values.append(power_constr_per_ap_mean.detach().numpy())
+                tx_policy_values.append(tx_probs.mean(dim=[0,1]).detach().numpy())
+                channel_policy_values.append(channel_probs.mean(dim=[0,1]).detach().numpy()) 
+                power_policy_values.append(power_probs.mean(dim=[0,1]).detach().numpy())
+                power_constraint_values.append(power_constr_per_ap_mean.detach().numpy())
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
-                mu_k_values.append(mu_k.detach().numpy())
+                mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
+
 
     for name, param in gnn_model.named_parameters():
         if param.requires_grad:
@@ -160,8 +177,12 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     path = plot_results(
             building_id=building_id,
             b5g=b5g,
-            normalized_psi=probs,
-            normalized_psi_values=probs_values,
+            tx_probs=tx_probs,
+            channel_probs=channel_probs, 
+            power_probs=power_probs,
+            tx_policy_values=tx_policy_values,
+            channel_policy_values=channel_policy_values,
+            power_policy_values=power_policy_values,
             num_layers=num_layers,
             K=K,
             batch_size=batch_size,
@@ -169,13 +190,15 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             rn=rn,
             rn1=rn1,
             eps=eps,
+            mu_lr=mu_lr,
             objective_function_values=objective_function_values,
-            power_constraint_values=power_constraint_per_ap_values,
+            power_constraint_values=power_constraint_values,
             loss_values=loss_values,
             mu_k_values=mu_k_values,
             train=True,
-            args=args
-            
+            synthetic=synthetic,
+            num_channels=num_channels,
+            num_power_levels=num_power_levels
         )
 
     file_name = path + 'objective_function_values_train_' + str(epochs) + '.pkl'
@@ -184,7 +207,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
     # save trained gnn weights in .pth
     torch.save(gnn_model.state_dict(), path + 'gnn_model_weights.pth')
-
+        
 if __name__ == '__main__':
     import argparse
 
@@ -197,22 +220,20 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description= 'System configuration')
 
-    parser.add_argument('--building_id', type=int, default=856)
+    parser.add_argument('--building_id', type=int, default=990)
     parser.add_argument('--b5g', type=int, default=0)
-    parser.add_argument('--num_links', type=int, default=20)
-    parser.add_argument('--num_channels', type=int, default=11)
+    parser.add_argument('--num_links', type=int, default=5)
+    parser.add_argument('--num_channels', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
     parser.add_argument('--epochs', type=int, default=150)
-    parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--eps', type=float, default=5e-4)
-    parser.add_argument('--mu_lr', type=float, default=1e-4)
+    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--eps', type=float, default=5e-5)
+    parser.add_argument('--mu_lr', type=float, default=5e-5)
     parser.add_argument('--synthetic', type=int, default=0)
-    parser.add_argument('--seed', type=int, default=None, help='Semilla para reproducibilidad')
-    parser.add_argument('--max_antenna_power_dbm', type=int, default=6, help='Potencia máxima de la antena en dBm')
 
     args = parser.parse_args()
-
+    
     print(f'building_id: {args.building_id}')
     print(f'b5g: {args.b5g}')
     print(f'num_links: {args.num_links}')
@@ -224,12 +245,9 @@ if __name__ == '__main__':
     print(f'eps: {args.eps}')
     print(f'mu_lr: {args.mu_lr}')
     print(f'synthetic: {args.synthetic}')
-    print(f'max_antenna_power_dbm: {args.max_antenna_power_dbm}')
 
-    if args.seed is not None:
-        torch.manual_seed(args.seed)
-        np.random.seed(args.seed)
+    
 
-    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1, max_antenna_power_dbm=args.max_antenna_power_dbm)
+    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
     
     print('Seeds: {} and {}'.format(rn, rn1))
