@@ -34,9 +34,16 @@ from utils import mu_update_per_ap
 from utils import graphs_to_tensor_synthetic
 
 
+DEFAULT_P0 = 11
+DEFAULT_SIGMA = 1e-4
+
+# Definir constante global
+MAX_ANTENNA_POWER_DBM = 6  # 6 dBi
+MAX_ANTENNA_POWER_MW = 10 ** (MAX_ANTENNA_POWER_DBM / 10)  # ≈ 4 mW
+
 def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
         batch_size=64, epochs=100, eps=5e-4, mu_lr=1e-4, synthetic=1, rn=100, rn1=100,
-        p0=4, sigma=1e-4):   
+        p0=DEFAULT_P0, sigma=DEFAULT_SIGMA, max_antenna_power_dbm=6):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
@@ -57,20 +64,20 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
 
 
-    mu_k = torch.ones((num_links,), requires_grad=False)  # [num_links]
-    # pmax_per_ap = p0*4/5* torch.ones((num_links,))  # [num_links]
-    pmax_per_ap = p0/2* torch.ones((num_links,))  # [num_links]
+    max_antenna_power_mw = 10 ** (max_antenna_power_dbm / 10)
+    pmax_per_ap = max_antenna_power_mw*0.8* torch.ones((num_links,))
+    mu_k =  torch.ones((num_links,), requires_grad=False)  
 
 
     # ---- Definición de red ----
     input_dim = 1
     hidden_dim = 1  # Escala con el número de enlaces
 
-    power_levels = torch.tensor([p0/2, p0])   
+    power_levels = torch.tensor([0,p0/2, p0])   
     num_power_levels = len(power_levels)
 
     # Calcular num_actions dinámicamente
-    num_actions = 1 + num_channels * num_power_levels
+    num_actions = num_channels * num_power_levels
     output_dim = num_actions
     dropout = False
     
@@ -101,15 +108,10 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
             psi = psi.view(batch_size, num_links, output_dim)
 
-            # probs = torch.softmax(psi, dim=-1)
-            # dist = torch.distributions.Categorical(probs=probs)
+     
             probs = torch.softmax(psi, dim=-1)
-            # evitar ceros totales y NaN:
-            probs = torch.clamp(probs, min=1e-8)             # evita ceros exactos
-            probs = probs / probs.sum(dim=-1, keepdim=True)  # renormaliza (ahora suma 1)
-            # doble chequeo defensa:
-            if not torch.all(torch.isfinite(probs)):
-                probs = torch.where(torch.isfinite(probs), probs, torch.ones_like(probs) / probs.size(-1))
+            probs = torch.clamp(probs, min=1e-8)            
+            probs = probs / probs.sum(dim=-1, keepdim=True) 
             dist = torch.distributions.Categorical(probs=probs)
 
             actions = dist.sample()
@@ -124,18 +126,17 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
                 power_idx   = actions_active % num_power_levels
                 phi[active_mask, channel_idx] = power_levels.to(phi.device)[power_idx]
             
-            power_constr_per_ap = power_constraint_per_ap(phi, pmax_per_ap)  # [batch_size, num_links]
-            power_constr_per_ap_mean = torch.mean(power_constr_per_ap, dim=(0,1))  # [num_links]
+            power_constr_per_ap = power_constraint_per_ap(phi, pmax_per_ap)  
+            power_constr_per_ap_mean = torch.mean(power_constr_per_ap, dim=(0,1))  
+            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=max_antenna_power_mw)
 
-            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma)
-
-            sum_rate = -objective_function(rates).unsqueeze(-1)  # [batch_size, 1]
+            sum_rate = -objective_function(rates).unsqueeze(-1) 
             sum_rate_mean = torch.mean(sum_rate, dim=0)
 
-            mu_k = mu_update_per_ap(mu_k, power_constr_per_ap, eps) # [num_links]
+            mu_k = mu_update_per_ap(mu_k, power_constr_per_ap, eps) 
 
-            penalty_per_ap = power_constr_per_ap * mu_k.unsqueeze(0)  # [batch_size, num_links]
-            total_penalty = penalty_per_ap.sum(dim=1).unsqueeze(-1)   # [batch_size, 1]
+            penalty_per_ap = power_constr_per_ap * mu_k.unsqueeze(0)  
+            total_penalty = penalty_per_ap.sum(dim=1).unsqueeze(-1)   
 
             cost = sum_rate + total_penalty  
             
@@ -151,7 +152,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
                 mu_k_values.append(mu_k.detach().numpy())
-
 
     for name, param in gnn_model.named_parameters():
         if param.requires_grad:
@@ -173,7 +173,9 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             power_constraint_values=power_constraint_per_ap_values,
             loss_values=loss_values,
             mu_k_values=mu_k_values,
-            train=True
+            train=True,
+            args=args
+            
         )
 
     file_name = path + 'objective_function_values_train_' + str(epochs) + '.pkl'
@@ -201,11 +203,13 @@ if __name__ == '__main__':
     parser.add_argument('--num_channels', type=int, default=11)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=150)
+    parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
     parser.add_argument('--synthetic', type=int, default=0)
+    parser.add_argument('--seed', type=int, default=None, help='Semilla para reproducibilidad')
+    parser.add_argument('--max_antenna_power_dbm', type=int, default=6, help='Potencia máxima de la antena en dBm')
 
     args = parser.parse_args()
 
@@ -220,9 +224,12 @@ if __name__ == '__main__':
     print(f'eps: {args.eps}')
     print(f'mu_lr: {args.mu_lr}')
     print(f'synthetic: {args.synthetic}')
+    print(f'max_antenna_power_dbm: {args.max_antenna_power_dbm}')
 
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
 
-
-    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
+    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1, max_antenna_power_dbm=args.max_antenna_power_dbm)
     
     print('Seeds: {} and {}'.format(rn, rn1))
