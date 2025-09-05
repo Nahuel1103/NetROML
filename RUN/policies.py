@@ -17,7 +17,11 @@ class GNNExtractor(BaseFeaturesExtractor):
         # Llamamos al init de BaseFeaturesExtractor con el tamaño de salida
         super().__init__(observation_space, features_dim=hidden_dim)
 
-        num_links = observation_space.shape[0]  # nodos = cantidad de enlaces
+        # la obs puede venir aplanada (num_links*num_links,) o 2D (num_links, num_links)
+        if len(observation_space.shape) == 1:
+            num_links = int(observation_space.shape[0] ** 0.5)
+        else:
+            num_links = observation_space.shape[0]
 
         self.convs = nn.ModuleList()
         in_channels = num_links
@@ -30,17 +34,22 @@ class GNNExtractor(BaseFeaturesExtractor):
 
     def forward(self, observations):
         """
-        observations: tensor [batch_size, num_links, num_links]
+        observations: tensor [batch_size, num_links*num_links] o [batch_size, num_links, num_links]
         Representa la matriz de canal.
         """
         batch_size = observations.size(0)
-        num_links = observations.size(1)
+        if observations.dim() == 2:
+            num_links = int(observations.size(1) ** 0.5)
+            obs_matrix = observations.view(batch_size, num_links, num_links)
+        else:
+            num_links = observations.size(1)
+            obs_matrix = observations
 
         # construimos edge_index para un grafo totalmente conectado
         edge_index = self.build_edge_index(num_links).to(observations.device)
 
         # reshape: tratamos cada fila de la channel_matrix como features de un nodo
-        x = observations.reshape(batch_size * num_links, -1)
+        x = obs_matrix.reshape(batch_size * num_links, -1)
 
         for conv in self.convs:
             x = F.relu(conv(x, edge_index))
