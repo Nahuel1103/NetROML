@@ -73,11 +73,11 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     input_dim = 1
     hidden_dim = 1  # Escala con el número de enlaces
 
-    power_levels = torch.tensor([0,p0/2, p0])   
+    power_levels = torch.tensor([p0/2, p0])   
     num_power_levels = len(power_levels)
 
     # Calcular num_actions dinámicamente
-    num_actions = num_channels * num_power_levels
+    num_actions = 1+ num_channels * num_power_levels
     output_dim = num_actions
     dropout = False
     
@@ -203,10 +203,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_channels', type=int, default=11)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--eps', type=float, default=5e-4)
-    parser.add_argument('--mu_lr', type=float, default=5e-4)
+    parser.add_argument('--mu_lr', type=float, default=1e-4)
     parser.add_argument('--synthetic', type=int, default=0)
     parser.add_argument('--seed', type=int, default=None, help='Semilla para reproducibilidad')
     parser.add_argument('--max_antenna_power_dbm', type=int, default=6, help='Potencia máxima de la antena en dBm')

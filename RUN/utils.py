@@ -1,25 +1,11 @@
-from torch_geometric.nn import LayerNorm, Sequential
-from torch_geometric.nn.conv import MessagePassing
-
-import random
+# utils.py - Imports optimizados
 import pickle
 import numpy as np
 import networkx as nx
-
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.autograd import grad
-
-import torch_geometric as pyg
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-from torch_geometric.nn import TAGConv
-from torch_geometric.nn import GCNConv
-import matplotlib.pyplot as plt
-
-import scipy.io
+import random
 
 def transform_matrix(adj_matrix, all = True):
 

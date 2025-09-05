@@ -133,47 +133,57 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
 
         if len(normalized_psi_values) > 0:
             normalized_psi_value = np.array(normalized_psi_values)
-            
-            # Ensure the array is 2D
+            plt.figure(figsize=(16, 9))
+            # Ensure the array is 2D (even if there's only one policy)
             if len(normalized_psi_value.shape) == 1:
                 normalized_psi_value = normalized_psi_value.reshape(-1, 1)
             
-            n_policies = normalized_psi_value.shape[1]  # Total de políticas
+            n_policies = normalized_psi_value.shape[1]  # Number of policies
 
-            # Generar etiquetas dinámicas
+            # Generate labels dynamically
             nombres_politicas = []
-            num_channels = args.num_channels if 'args' in locals() else 3  # Usar valor por defecto si no hay args
-            num_power_levels = 2  # p0/2 y p0 (asumiendo 2 niveles de potencia)
-            
-            # Políticas de apagado (una por canal)
-            for canal in range(num_channels):
-                nombres_politicas.append(f"Apagado (Canal {canal})")
-            
-            # Políticas activas (por nivel de potencia y canal)
-            for nivel in range(1, num_power_levels + 1):
-                potencia = f"p0/{nivel+1}" if nivel != num_power_levels else "p0"
-                for canal in range(num_channels):
-                    nombres_politicas.append(f"Canal {canal} con {potencia}")
-
-            # Verificar coincidencia de dimensiones
-            if n_policies != len(nombres_politicas):
-                raise ValueError(f"Número de políticas ({n_policies}) no coincide con las etiquetas generadas ({len(nombres_politicas)})")
+            if n_policies == 1:
+                nombres_politicas = ['Apagado (potencia 0)']
+            else:
+                # Assume the first policy is "Apagado"
+                nombres_politicas.append('Apagado (potencia 0)')
+                
+                # Calculate num_channels and num_levels such that num_channels * num_levels = n_policies - 1
+                # and num_channels > num_levels
+                remaining_policies = n_policies - 1
+                num_levels = 1
+                num_channels = remaining_policies
+                
+                # Find the largest possible num_levels where num_channels > num_levels
+                for i in range(2, int(remaining_policies**0.5) + 1):
+                    if remaining_policies % i == 0:
+                        if remaining_policies // i > i:
+                            num_levels = i
+                            num_channels = remaining_policies // i
+                
+                # Generate labels grouped by power level first, then channel
+                for nivel in range(1, num_levels + 1):
+                    potencia = f"p0/{nivel+1}" if nivel != num_levels else "p0"
+                    for canal in range(num_channels):
+                        nombres_politicas.append(f"Canal {canal} con potencia {potencia}")
 
             plt.figure(figsize=(16, 9))
+
+            # Plot each policy
             for i in range(n_policies):
                 plt.plot(normalized_psi_value[:, i], label=nombres_politicas[i])
-            
+
             plt.grid()
+            # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
             plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
             plt.xlabel('Tiempo')
             plt.ylabel('Valor de Política Normalizado')
-            plt.title('Políticas de Asignación de Potencia por Canal (Incluye Apagado por Canal)')
-            
+            plt.title('Políticas de Asignación de Potencia por Canal')
+
             image_name = 'policies.png'
             image_path = os.path.join(path, image_name)
             plt.savefig(image_path, bbox_inches='tight')
             plt.close()
-
 
     normalized_psi= torch.mean(normalized_psi, dim=0)
     normalized_psi_array = normalized_psi.detach().numpy()
