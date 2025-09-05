@@ -50,17 +50,6 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         plt.savefig(image_path)
         plt.close()
 
-        # plt.figure(figsize=(16,9))
-        # plt.title('Funcion Objetivo post 2000')
-        # plt.xlabel('Iteraciones (x10)')
-        # plt.ylabel('Capacidad')
-        # plt.plot(objective_function_values[2000:])
-        # plt.grid()
-        # image_name = f'objective_function_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-        # image_path = os.path.join(path, image_name)
-        # plt.savefig(image_path)
-        # plt.close()
-
     if len(power_constraint_values) > 0:
 
         plt.figure(figsize=(16,9))
@@ -73,17 +62,6 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         image_path = os.path.join(path, image_name)
         plt.savefig(image_path)
         plt.close()
-
-        # plt.figure(figsize=(16,9))
-        # plt.title('Restriccion de potencia post 2000')
-        # plt.xlabel('Iteraciones (x10)')
-        # plt.ylabel('Potencia')
-        # plt.grid()        
-        # plt.plot(power_constraint_values[2000:])
-        # image_name = f'power_constraint_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-        # image_path = os.path.join(path, image_name)
-        # plt.savefig(image_path)
-        # plt.close()
 
     if len(loss_values) > 0:
 
@@ -122,17 +100,6 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         plt.savefig(image_path)
         plt.close()
 
-        # plt.figure(figsize=(16,9))
-        # plt.title('mu_k post 2000')
-        # plt.xlabel('Iteraciones (x10)')
-        # plt.ylabel('mu_k')
-        # plt.plot(mu_k_values[2000:])
-        # plt.grid()
-        # image_name = f'mu_k_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-        # image_path = os.path.join(path, image_name)
-        # plt.savefig(image_path)
-        # plt.close()
-
         if len(normalized_psi_values) > 0:
             normalized_psi_value = np.array(normalized_psi_values)
             
@@ -144,7 +111,7 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
 
             # Generar etiquetas dinámicas
             nombres_politicas = []
-            num_channels = args.num_channels if 'args' in locals() else 3  # Usar valor por defecto si no hay args
+            num_channels = 3
             num_power_levels = 2  # p0/2 y p0 (asumiendo 2 niveles de potencia)
             
             # Políticas de apagado (una por canal)

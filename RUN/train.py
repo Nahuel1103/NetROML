@@ -222,4 +222,3 @@ if __name__ == '__main__':
     run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
     
     print('Seeds: {} and {}'.format(rn, rn1))
-
