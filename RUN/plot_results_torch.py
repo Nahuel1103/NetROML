@@ -176,7 +176,7 @@ def plot_results(building_id, b5g, tx_probs, channel_probs, power_probs,
         
         # Channel Policy
         for c in range(num_channels):
-            ax2.plot(channel_policy_array[:, c], label=f'Canal {c}', linewidth=2)
+            ax2.plot(channel_policy_array[:, c], label=f'Canal {c+1}', linewidth=2)
         ax2.set_ylabel('Probabilidad Canal')
         ax2.grid()
         ax2.legend()
