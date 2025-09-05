@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
 import scipy.io
+import os
 
 from plot_results_torch import plot_results
 from gnn import GNN
@@ -153,7 +154,8 @@ def run(building_id=990, b5g=False, num_links = 5, num_channels=3, num_layers=5,
 
 
 
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/results/'+str(banda[b5g])+'_'+str(building_id)+'/torch_results/'
+    ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(ROOT_DIR, 'results', str(banda[b5g])+'_'+str(building_id), 'torch_results') + '/'
     file_name = path + 'baseline'+str(baseline)+'_'+str(epochs)+'.pkl'
     with open(file_name, 'wb') as archivo:
         pickle.dump(objective_function_values, archivo)

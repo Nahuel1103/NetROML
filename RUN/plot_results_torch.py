@@ -18,18 +18,20 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
     mu_lr_str= str(f"{mu_lr:.0e}")
     batch_size_str = str(batch_size)
 
+    ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    base = os.path.join(ROOT_DIR, 'results', str(band[b5g]) + '_' + str(building_id), 'torch_results', 'n_layers' + str(num_layers) + '_order' + str(K))
     if train:
         if synthetic:
-            path = '/Users/mauriciovieirarodriguez/project/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/synthetic_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1)
+            path = os.path.join(base, 'synthetic_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1))
         else:
-            path = '/Users/mauriciovieirarodriguez/project/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_train_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1)
+            path = os.path.join(base, 'ceibal_train_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1))
 
         if (baseline==0):
             path = path + '/'
         else:
             path = path + '_baseline' + str(baseline) + '/'
     else:
-        path = '/Users/mauriciovieirarodriguez/project/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1) + '/'
+        path = os.path.join(base, 'ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1))
 
 
     if not os.path.exists(path):
@@ -48,16 +50,16 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         plt.savefig(image_path)
         plt.close()
 
-        plt.figure(figsize=(16,9))
-        plt.title('Funcion Objetivo post 2000')
-        plt.xlabel('Iteraciones (x10)')
-        plt.ylabel('Capacidad')
-        plt.plot(objective_function_values[2000:])
-        plt.grid()
-        image_name = f'objective_function_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-        image_path = os.path.join(path, image_name)
-        plt.savefig(image_path)
-        plt.close()
+        # plt.figure(figsize=(16,9))
+        # plt.title('Funcion Objetivo post 2000')
+        # plt.xlabel('Iteraciones (x10)')
+        # plt.ylabel('Capacidad')
+        # plt.plot(objective_function_values[2000:])
+        # plt.grid()
+        # image_name = f'objective_function_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
+        # image_path = os.path.join(path, image_name)
+        # plt.savefig(image_path)
+        # plt.close()
 
     if len(power_constraint_values) > 0:
 
@@ -72,16 +74,16 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         plt.savefig(image_path)
         plt.close()
 
-        plt.figure(figsize=(16,9))
-        plt.title('Restriccion de potencia post 2000')
-        plt.xlabel('Iteraciones (x10)')
-        plt.ylabel('Potencia')
-        plt.grid()        
-        plt.plot(power_constraint_values[2000:])
-        image_name = f'power_constraint_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-        image_path = os.path.join(path, image_name)
-        plt.savefig(image_path)
-        plt.close()
+        # plt.figure(figsize=(16,9))
+        # plt.title('Restriccion de potencia post 2000')
+        # plt.xlabel('Iteraciones (x10)')
+        # plt.ylabel('Potencia')
+        # plt.grid()        
+        # plt.plot(power_constraint_values[2000:])
+        # image_name = f'power_constraint_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
+        # image_path = os.path.join(path, image_name)
+        # plt.savefig(image_path)
+        # plt.close()
 
     if len(loss_values) > 0:
 
@@ -97,12 +99,12 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         plt.close()
 
         plt.figure(figsize=(16,9))
-        plt.title('Loss post 2000')
+        plt.title('Loss post 1000:1200')
         plt.xlabel('Iteraciones (x10)')
         plt.ylabel('Loss')
-        plt.plot(loss_values[2000:])
+        plt.plot(loss_values[1000:1200])
         plt.grid()
-        image_name = f'loss_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
+        image_name = f'loss_bt1000:1200'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
         image_path = os.path.join(path, image_name)
         plt.savefig(image_path)
         plt.close()
@@ -120,27 +122,59 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
         plt.savefig(image_path)
         plt.close()
 
-        plt.figure(figsize=(16,9))
-        plt.title('mu_k post 2000')
-        plt.xlabel('Iteraciones (x10)')
-        plt.ylabel('mu_k')
-        plt.plot(mu_k_values[2000:])
-        plt.grid()
-        image_name = f'mu_k_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-        image_path = os.path.join(path, image_name)
-        plt.savefig(image_path)
-        plt.close()
-    
-    if (len(normalized_psi_values) > 0):
-        plt.figure(figsize=(16,9))
-        plt.plot(np.array(normalized_psi_values).mean(axis=1))
-        plt.grid()
-        image_name = 'policies.png'
-        image_path = os.path.join(path, image_name)
-        plt.savefig(image_path)
-        plt.close()
-        # convertir a array: list of [m,4] → [steps, m, 4]
+        # plt.figure(figsize=(16,9))
+        # plt.title('mu_k post 2000')
+        # plt.xlabel('Iteraciones (x10)')
+        # plt.ylabel('mu_k')
+        # plt.plot(mu_k_values[2000:])
+        # plt.grid()
+        # image_name = f'mu_k_post2000'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
+        # image_path = os.path.join(path, image_name)
+        # plt.savefig(image_path)
+        # plt.close()
 
+        if len(normalized_psi_values) > 0:
+            normalized_psi_value = np.array(normalized_psi_values)
+            
+            # Ensure the array is 2D
+            if len(normalized_psi_value.shape) == 1:
+                normalized_psi_value = normalized_psi_value.reshape(-1, 1)
+            
+            n_policies = normalized_psi_value.shape[1]  # Total de políticas
+
+            # Generar etiquetas dinámicas
+            nombres_politicas = []
+            num_channels = args.num_channels if 'args' in locals() else 3  # Usar valor por defecto si no hay args
+            num_power_levels = 2  # p0/2 y p0 (asumiendo 2 niveles de potencia)
+            
+            # Políticas de apagado (una por canal)
+            for canal in range(num_channels):
+                nombres_politicas.append(f"Apagado (Canal {canal})")
+            
+            # Políticas activas (por nivel de potencia y canal)
+            for nivel in range(1, num_power_levels + 1):
+                potencia = f"p0/{nivel+1}" if nivel != num_power_levels else "p0"
+                for canal in range(num_channels):
+                    nombres_politicas.append(f"Canal {canal} con {potencia}")
+
+            # Verificar coincidencia de dimensiones
+            if n_policies != len(nombres_politicas):
+                raise ValueError(f"Número de políticas ({n_policies}) no coincide con las etiquetas generadas ({len(nombres_politicas)})")
+
+            plt.figure(figsize=(16, 9))
+            for i in range(n_policies):
+                plt.plot(normalized_psi_value[:, i], label=nombres_politicas[i])
+            
+            plt.grid()
+            plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            plt.xlabel('Tiempo')
+            plt.ylabel('Valor de Política Normalizado')
+            plt.title('Políticas de Asignación de Potencia por Canal (Incluye Apagado por Canal)')
+            
+            image_name = 'policies.png'
+            image_path = os.path.join(path, image_name)
+            plt.savefig(image_path, bbox_inches='tight')
+            plt.close()
 
 
     normalized_psi= torch.mean(normalized_psi, dim=0)

@@ -20,6 +20,7 @@ from torch_geometric.nn import GCNConv
 import matplotlib.pyplot as plt
 
 import scipy.io
+import os
 
 def transform_matrix(adj_matrix, all = True):
 
@@ -110,16 +111,17 @@ def transform_matrix(adj_matrix, all = True):
 def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, building_id=990):
     
     band = ['2_4', '5']
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    GRAPHS_DIR = os.path.join(ROOT_DIR, 'PP', 'graphs')
+    path = os.path.join(GRAPHS_DIR, str(band[b5g]) + '_' + str(building_id))
 
     if (train):
         file_name = 'train_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
-        #file_name = str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
-        with open(path + file_name, 'rb') as archivo:
+        with open(os.path.join(path, file_name), 'rb') as archivo:
             graphs = pickle.load(archivo)
     else:
         file_name = 'val_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
-        with open(path + file_name, 'rb') as archivo:
+        with open(os.path.join(path, file_name), 'rb') as archivo:
             graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
@@ -140,9 +142,11 @@ def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, buildin
 def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/graph/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    GRAPHS_DIR = os.path.join(ROOT_DIR, 'PP', 'graphs')
+    path = os.path.join(GRAPHS_DIR, str(band[b5g]) + '_' + str(building_id))
     file_name = 'synthetic_graphs.pkl'
-    with open(path + file_name, 'rb') as archivo:
+    with open(os.path.join(path, file_name), 'rb') as archivo:
         graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []

@@ -65,11 +65,11 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     hidden_dim = 1
 
     # Definí los niveles de potencia discretos
-    power_levels = torch.tensor([p0/2, p0])   # ej. 2 niveles
+    power_levels = torch.tensor([0, p0/2, p0])
     num_power_levels = len(power_levels)
 
     # Número total de acciones: no_tx + (canales * niveles de potencia)
-    num_actions = 1 + num_channels * num_power_levels
+    num_actions = num_channels * num_power_levels
 
     output_dim = num_actions
     dropout = False
