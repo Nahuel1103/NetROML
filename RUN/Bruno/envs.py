@@ -60,28 +60,56 @@ class APNetworkEnv(gym.Env):
         return self.state, {}
 
     
-
-
     def step(self, action):
         self.current_step += 1
 
-        # Simular efectos de la acción en el estado
-        # (aquí tendrías que definir cómo la acción cambia la red)
-        self.state = np.random.rand(self.n_APs, 4).astype(np.float32)
+        action = np.array(action)
 
-        # Calcular reward (ejemplo simple)
-        throughput = np.sum(self.state[:, 3])  # suponer col 3 = tráfico
-        interference = np.sum(self.state[:, 2])  # suponer col 2 = interferencia
-        reward = throughput - 0.5 * interference
+        # Inicializamos estado nuevo con ceros
+        new_state = np.zeros((self.n_APs, 2), dtype=np.float32)
 
-        # Condiciones de fin
+        # Máscara: cuáles APs están activos (no apagado)
+        active_mask = action > 0
+
+        # Ajustamos acciones (para que 0 quede apagado y el resto arranque desde 0)
+        a_adj = action[active_mask] - 1
+
+        # Calculamos canal y potencia solo para los activos
+        canales = a_adj // self.power_levels + 1
+        potencias = a_adj % self.power_levels + 1
+
+        # Asignamos de una sola vez
+        new_state[active_mask, 0] = canales
+        new_state[active_mask, 1] = potencias
+
+        # Este será el siguiente estado de la red
+        self.state = new_state
+
+        # Reward de ejemplo: suma de potencias activas
+        # HAY QUE EDITARLO
+        reward = np.sum(self.state[:, 1])
+
+        # terminated se usaría si, cumplida una condición, debe empezar el siguiente paso reseteando el state.
         terminated = False
+
+        # Indica si el episodio terminó porque se alcanzó un limite impuesto (por ejemplo, max steps)
         truncated = self.current_step >= self.max_steps
 
+
+        # {} es un diccionario opcional que se usa para devolver información extra que no forma parte del estado, 
+        # pero puede ser útil para debugging, logging o métricas.
         return self.state, reward, terminated, truncated, {}
 
+
     def render(self):
+        # No es obligatorio, pero útil si se quiere visualizar lo que pasa (debugging o mostrar resultados).
+        # Puede ser tan simple como un print o tan complejo como gráficos en tiempo real.
+        # Si no lo necesitás, podés dejarlo vacío o no implementarlo.
         print(f"Step {self.current_step} | State:\n{self.state}")
 
+
     def close(self):
+        # Tampoco es obligatorio.
+        # Se usa si tu entorno abre recursos externos (ventanas gráficas, archivos, conexiones, etc.).
+        # Si no abrís nada, podés dejarlo como pass.
         pass
