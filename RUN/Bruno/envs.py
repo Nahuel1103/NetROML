@@ -39,6 +39,8 @@ class APNetworkEnv(gym.Env):
         self.state = None
         self.current_step = 0
 
+
+
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = 0
@@ -59,11 +61,17 @@ class APNetworkEnv(gym.Env):
 
         return self.state, {}
 
-    
-    def step(self, action):
-        self.current_step += 1
 
+    
+    def step(self, action, H=None, graph=None):
+        self.current_step += 1
         action = np.array(action)
+
+        # actualizar H y graph si se pasa
+        if H is not None:
+            self.H = H
+        if graph is not None:
+            self.graph = graph
 
         # Inicializamos estado nuevo con ceros
         new_state = np.zeros((self.n_APs, 2), dtype=np.float32)
@@ -95,10 +103,10 @@ class APNetworkEnv(gym.Env):
         # Indica si el episodio terminó porque se alcanzó un limite impuesto (por ejemplo, max steps)
         truncated = self.current_step >= self.max_steps
 
-
         # {} es un diccionario opcional que se usa para devolver información extra que no forma parte del estado, 
         # pero puede ser útil para debugging, logging o métricas.
         return self.state, reward, terminated, truncated, {}
+
 
 
     def render(self):
@@ -106,6 +114,7 @@ class APNetworkEnv(gym.Env):
         # Puede ser tan simple como un print o tan complejo como gráficos en tiempo real.
         # Si no lo necesitás, podés dejarlo vacío o no implementarlo.
         print(f"Step {self.current_step} | State:\n{self.state}")
+
 
 
     def close(self):
