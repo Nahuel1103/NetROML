@@ -51,7 +51,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
     else:
         x_tensor, channel_matrix_tensor = graphs_to_tensor(
-            train=True, num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
+            train=False, num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
         )
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
@@ -202,7 +202,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             num_power_levels=num_power_levels
         )
 
-    file_name = path + 'objective_function_values_train_' + str(epochs) + '.pkl'
+    file_name = path + 'objective_function_values_val_' + str(epochs) + '.pkl'
     with open(file_name, 'wb') as archivo:
         pickle.dump(objective_function_values, archivo)
 
@@ -224,11 +224,11 @@ if __name__ == '__main__':
     parser.add_argument('--building_id', type=int, default=856)
     parser.add_argument('--b5g', type=int, default=0)
     parser.add_argument('--num_links', type=int, default=20)
-    parser.add_argument('--num_channels', type=int, default=11)
+    parser.add_argument('--num_channels', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--epochs', type=int, default=150)
+    parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=1e-3)
     parser.add_argument('--mu_lr', type=float, default=1e-3)
     parser.add_argument('--synthetic', type=int, default=0)

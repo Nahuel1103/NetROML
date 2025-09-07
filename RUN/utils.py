@@ -226,3 +226,5 @@ def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_thre
     # Tasa por enlace
     rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
     return rates
+
+    
