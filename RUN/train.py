@@ -36,8 +36,8 @@ from utils import graphs_to_tensor_synthetic
 
 
 def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
-        batch_size=64, epochs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100,
-        p0=11, sigma=1e-4):   
+        batch_size=64, epochs=100, eps=5e-5, mu_lr=5e-4, synthetic=1, rn=100, rn1=100,
+         sigma=1e-4,max_antenna_power_dbm=6):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
@@ -56,9 +56,10 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-    mu_k = torch.ones(num_links, requires_grad=False)
+    max_antenna_power_mw = 10 ** (max_antenna_power_dbm / 10)
+    pmax_per_ap = max_antenna_power_mw*0.6* torch.ones((num_links,))
+    mu_k =  torch.ones((num_links,), requires_grad=False)  
 
-    pmax = torch.ones(num_links) * 4*0.8 # [num_links]
 
     # ---- Definición de red ----
     input_dim = 1
@@ -66,12 +67,12 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
 
     # Definí los niveles de potencia discretos
-    power_levels = torch.tensor([0, p0/2, p0])  # Incluimos 0 = no transmitir
+    power_levels = torch.tensor([0, max_antenna_power_mw/2, max_antenna_power_mw])  # Incluimos 0 = no transmitir
     num_power_levels = len(power_levels)
 
     output_dim = 2 + num_channels + num_power_levels
 
-    dropout = False
+    dropout = True
     
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
     optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
@@ -127,7 +128,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             log_p_sum = log_p_total.sum(dim=1).unsqueeze(-1)
 
             # Construir phi
-            phi = torch.zeros(batch_size, num_links, num_channels, device=psi.device)
+            phi = torch.zeros(batch_size, num_links, num_channels)
 
             # Solo asignar potencia si decide transmitir
             transmit_indices = torch.where(transmit_mask)
@@ -137,11 +138,11 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
                 selected_channels = channel_actions[batch_idx_tx, link_idx_tx]
                 selected_powers = power_actions[batch_idx_tx, link_idx_tx]
                 
-                phi[batch_idx_tx, link_idx_tx, selected_channels] = power_levels.to(phi.device)[selected_powers]
+                phi[batch_idx_tx, link_idx_tx, selected_channels] = power_levels[selected_powers]
 
-            power_constr_per_ap = power_constraint_per_ap(phi, pmax)  # [batch_size, num_links]
+            power_constr_per_ap = power_constraint_per_ap(phi, pmax_per_ap)  # [batch_size, num_links]
             power_constr_per_ap_mean = torch.mean(power_constr_per_ap, dim=(0,1))  
-            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=p0)
+            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=max_antenna_power_mw)
 
             sum_rate = -objective_function(rates).unsqueeze(-1) 
             sum_rate_mean = torch.mean(sum_rate, dim=0)
@@ -220,16 +221,16 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description= 'System configuration')
 
-    parser.add_argument('--building_id', type=int, default=990)
+    parser.add_argument('--building_id', type=int, default=856)
     parser.add_argument('--b5g', type=int, default=0)
-    parser.add_argument('--num_links', type=int, default=5)
-    parser.add_argument('--num_channels', type=int, default=3)
+    parser.add_argument('--num_links', type=int, default=20)
+    parser.add_argument('--num_channels', type=int, default=11)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=150)
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--eps', type=float, default=5e-5)
-    parser.add_argument('--mu_lr', type=float, default=5e-5)
+    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--eps', type=float, default=1e-3)
+    parser.add_argument('--mu_lr', type=float, default=1e-3)
     parser.add_argument('--synthetic', type=int, default=0)
 
     args = parser.parse_args()
