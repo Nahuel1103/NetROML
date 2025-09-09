@@ -65,11 +65,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     hidden_dim = 1
 
     # Definí los niveles de potencia discretos
-    power_levels = torch.tensor([0, p0/2, p0])
-    num_power_levels = len(power_levels)
-
-    # Definí los niveles de potencia discretos
-    power_levels = torch.tensor([0, p0/2, p0])  # Incluimos 0 = no transmitir
+    power_levels = torch.tensor([p0/2, p0]) 
     num_power_levels = len(power_levels)
 
     # Arquitectura: 3 decisiones independientes
