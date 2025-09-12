@@ -83,23 +83,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
                 channel_probs = torch.ones(batch_size, num_links, num_channels) / num_channels
                 power_probs = torch.ones(batch_size, num_links, num_power_levels) / num_power_levels
                 
-            # BASELINE 2: Política greedy (siempre transmitir, canal con mejor SNR, máxima potencia)
-            elif baseline == 2:
-                tx_probs = torch.zeros(batch_size, num_links, 2)
-                tx_probs[:, :, 1] = 1.0  # Siempre transmitir
-                
-                # Encontrar el canal con mejor SNR para cada enlace
-                diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
-                best_channels = torch.argmax(diagH, dim=-1)
-                
-                channel_probs = torch.zeros(batch_size, num_links, num_channels)
-                for i in range(batch_size):
-                    for j in range(num_links):
-                        channel_probs[i, j, best_channels[i, j]] = 1.0
-                
-                # Siempre usar máxima potencia
-                power_probs = torch.zeros(batch_size, num_links, num_power_levels)
-                power_probs[:, :, -1] = 1.0  # Último nivel de potencia (máximo)
 
             # Muestrear decisiones (igual que en train.py)
             tx_dist = torch.distributions.Categorical(probs=tx_probs)
