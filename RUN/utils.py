@@ -181,7 +181,7 @@ def objective_function(rates):
 
 
 def power_constraint(phi, pmax):
-    sum_phi = torch.sum(phi, dim=(1,2))
+    sum_phi = torch.sum(phi, dim=(2))
     return (sum_phi - pmax)
 
 def mu_update(mu_k, power_constr, eps):

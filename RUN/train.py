@@ -35,7 +35,7 @@ from utils import nuevo_get_rates
 from utils import graphs_to_tensor_synthetic
 
 
-def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
+def run(building_id=990, b5g=False, num_links=5, num_channels=5, num_layers=5, K=3,
         batch_size=64, epochs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100,
         p0=4, sigma=1e-4):   
 
@@ -56,16 +56,18 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-    mu_k = torch.ones((1, 1), requires_grad=False)
+    mu_k = torch.ones((num_links,), requires_grad=False)
 
-    pmax = 4
+    pmax = 10**((6)/10)
+
+    #pmax = 4
 
     # ---- Definición de red ----
     input_dim = 1
     hidden_dim = 1
 
     # Definí los niveles de potencia discretos
-    power_levels = torch.tensor([p0/2, p0]) 
+    power_levels = torch.tensor([pmax/3, pmax/2, 2*pmax/3, pmax]) 
     num_power_levels = len(power_levels)
 
     # Arquitectura: 3 decisiones independientes
@@ -141,10 +143,11 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
                 selected_powers = power_actions[batch_idx_tx, link_idx_tx]
                 
                 phi[batch_idx_tx, link_idx_tx, selected_channels] = power_levels.to(phi.device)[selected_powers]
-
+            
             # --- constraint de potencia ---
-            power_constr = power_constraint(phi, pmax).unsqueeze(-1)   # [batch_size, 1]
-            power_constr_mean = torch.mean(power_constr, dim=0)
+            pmax_ap = 0.6*pmax*torch.ones((num_links,))
+            power_constr = power_constraint(phi, pmax_ap)#.unsqueeze(-1)   # [batch_size, 1]
+            power_constr_mean = torch.mean(power_constr, dim=(0,1))
 
             # Calcula rates
             rates = nuevo_get_rates(phi, channel_matrix_batch, sigma)  # [batch_size, num_links]
@@ -157,12 +160,14 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             mu_k = mu_update(mu_k, power_constr, eps)
 
             # Cálculo del costo y backprop
-            cost = sum_rate + (power_constr * mu_k)   # [batch_size,1]
+            penalty_ap = power_constr * mu_k.unsqueeze(0)
+            total_penalty = penalty_ap.sum(dim=1).unsqueeze(-1)
+            cost = sum_rate +  total_penalty  # [batch_size,1]
             loss = cost * log_p_sum                   # [batch_size,1]
             loss_mean = torch.mean(loss, dim=0)
 
             loss_mean.backward()
-            torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=1.0)
+            #torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=1.0)
             optimizer.step()
             optimizer.zero_grad()
 
@@ -229,7 +234,7 @@ if __name__ == '__main__':
     parser.add_argument('--building_id', type=int, default=990)
     parser.add_argument('--b5g', type=int, default=0)
     parser.add_argument('--num_links', type=int, default=5)
-    parser.add_argument('--num_channels', type=int, default=3)
+    parser.add_argument('--num_channels', type=int, default=5)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
     parser.add_argument('--epochs', type=int, default=150)
