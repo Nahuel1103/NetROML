@@ -123,8 +123,11 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             optimizer.step()
 
             if batch_idx%10 == 0:
-                probs_values.append(probs.mean(dim=[0,1]).detach().numpy())
-                # Guardar solo el valor medio de la restricción de potencia
+                # Guardar probabilidades COMPLETAS por nodo y canal (sin promediar)
+                # probs shape: [batch_size, num_links, num_channels+1]
+                probs_mean_batch = probs.mean(dim=0)  # Promedio sobre batch: [num_links, num_channels+1]
+                probs_values.append(probs_mean_batch.detach().numpy())
+                
                 power_constraint_values.append(power_constr_per_ap_mean.detach().numpy())
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
