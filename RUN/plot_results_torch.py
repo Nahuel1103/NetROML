@@ -199,64 +199,6 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
 
 
 # Versión 2
-    # if (len(normalized_psi_values) > 0):
-    #     normalized_psi_array = np.array(normalized_psi_values)  # [iterations, num_links, num_channels+1]
-        
-    #     # Obtener también datos de potencia si están disponibles
-    #     power_array = np.array(power_values) if len(power_values) > 0 else None  # [iterations, num_links, num_channels]
-        
-    #     num_nodes = normalized_psi_array.shape[1]
-    #     num_channels = power_array.shape[2] if power_array is not None else 0 # Use power_array shape for num_channels
-        
-    #     # Crear carpeta para políticas por nodo
-    #     policy_dir = os.path.join(path, 'policy_per_node')
-    #     if not os.path.exists(policy_dir):
-    #         os.makedirs(policy_dir)
-        
-    #     # Plot para cada nodo: probabilidades y potencia
-    #     for node_idx in range(num_nodes):
-    #         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12))
-            
-    #         # Subplot 1: Probabilidades de canales
-    #         ax1.set_title(f'Probabilidades de Canales - Nodo {node_idx}')
-    #         ax1.set_xlabel('Iteraciones (x10)')
-    #         ax1.set_ylabel('Probabilidad')
-    #         ax1.set_ylim(0, 1)
-    #         ax1.grid(True)
-            
-    #         # Plotear cada canal (incluyendo "No TX")
-    #         for channel_idx in range(normalized_psi_array.shape[2]):
-    #             if channel_idx == 0:
-    #                 label = 'No TX'
-    #                 color = 'red'
-    #             else:
-    #                 label = f'Canal {channel_idx-1}'
-    #                 color = f'C{channel_idx-1}'
-                
-    #             ax1.plot(normalized_psi_array[:, node_idx, channel_idx], 
-    #                     label=label, color=color, linewidth=2)
-            
-    #         ax1.legend()
-            
-    #         # Subplot 2: Niveles de potencia por canal (si hay datos)
-    #         if power_array is not None:
-    #             ax2.set_title(f'Niveles de Potencia - Nodo {node_idx}')
-    #             ax2.set_xlabel('Iteraciones (x10)')
-    #             ax2.set_ylabel('Potencia')
-    #             ax2.grid(True)
-                
-    #             for channel_idx in range(num_channels):
-    #                 ax2.plot(power_array[:, node_idx, channel_idx], 
-    #                         label=f'Canal {channel_idx} Potencia', 
-    #                         color=f'C{channel_idx}', linewidth=2, linestyle='--')
-                
-    #             ax2.legend()
-            
-    #         plt.tight_layout()
-    #         image_name = f'node_{node_idx}_channel_power_analysis.png'
-    #         image_path = os.path.join(policy_dir, image_name)
-    #         plt.savefig(image_path)
-    #         plt.close()
     if (len(normalized_psi_values) > 0):
         normalized_psi_array = np.array(normalized_psi_values)  # [iterations, num_links, num_actions]
         

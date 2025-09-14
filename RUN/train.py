@@ -57,7 +57,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
     max_antenna_power_mw = 10 ** (max_antenna_power_dbm / 10)
-    pmax_per_ap = max_antenna_power_mw*0.8* torch.ones((num_links,))
+    pmax_per_ap = max_antenna_power_mw*0.7* torch.ones((num_links,))
     mu_k =  torch.ones((num_links,), requires_grad=False)  
 
     # ---- Definición de red ----
@@ -281,7 +281,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_links', type=int, default=5)
     parser.add_argument('--num_layers', type=int, default=4)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=149)
+    parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
