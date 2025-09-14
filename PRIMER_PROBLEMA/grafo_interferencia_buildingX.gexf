@@ -1,0 +1,90 @@
+<?xml version='1.0' encoding='utf-8'?>
+<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd" version="1.2">
+  <meta lastmodifieddate="2025-06-14">
+    <creator>NetworkX 3.4.2</creator>
+  </meta>
+  <graph defaultedgetype="undirected" mode="static" name="">
+    <attributes mode="static" class="node">
+      <attribute id="0" title="banda" type="long" />
+      <attribute id="1" title="canal" type="double" />
+    </attributes>
+    <nodes>
+      <node id="00:E1:6D:C8:59:A0" label="00:E1:6D:C8:59:A0">
+        <attvalues>
+          <attvalue for="0" value="1" />
+          <attvalue for="1" value="36.0" />
+        </attvalues>
+      </node>
+      <node id="1C:6A:7A:72:87:90" label="1C:6A:7A:72:87:90">
+        <attvalues>
+          <attvalue for="0" value="1" />
+          <attvalue for="1" value="60.0" />
+        </attvalues>
+      </node>
+      <node id="1C:6A:7A:B5:94:00" label="1C:6A:7A:B5:94:00">
+        <attvalues>
+          <attvalue for="0" value="1" />
+          <attvalue for="1" value="36.0" />
+        </attvalues>
+      </node>
+      <node id="28:C7:CE:54:BE:D0" label="28:C7:CE:54:BE:D0">
+        <attvalues>
+          <attvalue for="0" value="1" />
+          <attvalue for="1" value="36.0" />
+        </attvalues>
+      </node>
+      <node id="28:C7:CE:54:C0:10" label="28:C7:CE:54:C0:10">
+        <attvalues>
+          <attvalue for="0" value="1" />
+          <attvalue for="1" value="36.0" />
+        </attvalues>
+      </node>
+      <node id="38:1C:1A:C4:DF:50" label="38:1C:1A:C4:DF:50">
+        <attvalues>
+          <attvalue for="0" value="1" />
+          <attvalue for="1" value="149.0" />
+        </attvalues>
+      </node>
+      <node id="38:1C:1A:D5:30:40" label="38:1C:1A:D5:30:40">
+        <attvalues>
+          <attvalue for="0" value="1" />
+          <attvalue for="1" value="44.0" />
+        </attvalues>
+      </node>
+      <node id="38:1C:1A:D5:3A:D0" label="38:1C:1A:D5:3A:D0">
+        <attvalues>
+          <attvalue for="0" value="1" />
+          <attvalue for="1" value="157.0" />
+        </attvalues>
+      </node>
+      <node id="88:1D:FC:A2:CF:60" label="88:1D:FC:A2:CF:60">
+        <attvalues>
+          <attvalue for="0" value="1" />
+          <attvalue for="1" value="44.0" />
+        </attvalues>
+      </node>
+      <node id="BC:67:1C:64:98:A0" label="BC:67:1C:64:98:A0">
+        <attvalues>
+          <attvalue for="0" value="1" />
+          <attvalue for="1" value="44.0" />
+        </attvalues>
+      </node>
+    </nodes>
+    <edges>
+      <edge source="00:E1:6D:C8:59:A0" target="1C:6A:7A:B5:94:00" id="0" />
+      <edge source="00:E1:6D:C8:59:A0" target="28:C7:CE:54:BE:D0" id="1" />
+      <edge source="00:E1:6D:C8:59:A0" target="28:C7:CE:54:C0:10" id="2" />
+      <edge source="00:E1:6D:C8:59:A0" target="88:1D:FC:A2:CF:60" id="3" />
+      <edge source="1C:6A:7A:72:87:90" target="38:1C:1A:D5:3A:D0" id="4" />
+      <edge source="1C:6A:7A:B5:94:00" target="28:C7:CE:54:BE:D0" id="5" />
+      <edge source="1C:6A:7A:B5:94:00" target="28:C7:CE:54:C0:10" id="6" />
+      <edge source="1C:6A:7A:B5:94:00" target="88:1D:FC:A2:CF:60" id="7" />
+      <edge source="28:C7:CE:54:BE:D0" target="28:C7:CE:54:C0:10" id="8" />
+      <edge source="28:C7:CE:54:BE:D0" target="88:1D:FC:A2:CF:60" id="9" />
+      <edge source="28:C7:CE:54:C0:10" target="88:1D:FC:A2:CF:60" id="10" />
+      <edge source="38:1C:1A:C4:DF:50" target="38:1C:1A:D5:30:40" id="11" />
+      <edge source="38:1C:1A:C4:DF:50" target="BC:67:1C:64:98:A0" id="12" />
+      <edge source="38:1C:1A:D5:30:40" target="BC:67:1C:64:98:A0" id="13" />
+    </edges>
+  </graph>
+</gexf>

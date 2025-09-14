@@ -1,11 +1,25 @@
-# utils.py - Imports optimizados
+from torch_geometric.nn import LayerNorm, Sequential
+from torch_geometric.nn.conv import MessagePassing
+
+import random
 import pickle
 import numpy as np
 import networkx as nx
+
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.autograd import grad
+
+import torch_geometric as pyg
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-import random
+from torch_geometric.nn import TAGConv
+from torch_geometric.nn import GCNConv
+import matplotlib.pyplot as plt
+
+import scipy.io
 
 def transform_matrix(adj_matrix, all = True):
 
@@ -101,22 +115,12 @@ def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, buildin
     if (train):
         file_name = 'train_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
         #file_name = str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
-        try:
-            with open(path + file_name, 'rb') as archivo:
-                graphs = pickle.load(archivo)
-        except FileNotFoundError:
-            raise FileNotFoundError(f"Archivo no encontrado: {path + file_name}")
-        except pickle.UnpicklingError:
-            raise ValueError(f"Archivo corrupto: {path + file_name}")
+        with open(path + file_name, 'rb') as archivo:
+            graphs = pickle.load(archivo)
     else:
         file_name = 'val_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
-        try:
-            with open(path + file_name, 'rb') as archivo:
-                graphs = pickle.load(archivo)
-        except FileNotFoundError:
-            raise FileNotFoundError(f"Archivo no encontrado: {path + file_name}")
-        except pickle.UnpicklingError:
-            raise ValueError(f"Archivo corrupto: {path + file_name}")
+        with open(path + file_name, 'rb') as archivo:
+            graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
     x = torch.zeros((num_links,num_features))
@@ -133,21 +137,16 @@ def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, buildin
     return x_tensor, channel_matrix_tensor
 
 
-def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
+def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
     path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
     file_name = 'synthetic_graphs.pkl'
-    try:
-        with open(path + file_name, 'rb') as archivo:
-            graphs = pickle.load(archivo)
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Archivo no encontrado: {path + file_name}")
-    except pickle.UnpicklingError:
-        raise ValueError(f"Archivo corrupto: {path + file_name}")
+    with open(path + file_name, 'rb') as archivo:
+        graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
-    x = torch.zeros((num_links,num_features)) 
+    x = torch.zeros((num_channels,num_features)) 
     for graph in graphs:
         channel_matrix_list.append(torch.tensor(graph))
         x_list.append(x)
@@ -187,6 +186,13 @@ def mu_update(mu_k, power_constr, eps):
     mu_k = torch.max(mu_k, torch.tensor(0.0))
     return mu_k
 
+def get_rates(phi, channel_matrix_batch, sigma):
+    phi = torch.squeeze(phi, dim = 2)
+    numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
+    expanded_phi = torch.unsqueeze(phi, dim=2)
+    denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator + sigma
+    rates = torch.log(numerator / denominator + 1)
+    return rates
 
 def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
     """Versión corregida de nuevo_get_rates"""
@@ -227,4 +233,3 @@ def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_thre
     rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
     return rates
 
-    
