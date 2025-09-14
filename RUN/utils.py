@@ -196,29 +196,7 @@ def get_rates(phi, channel_matrix_batch, sigma):
 
 
 # Versión 1 y 2
-def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
-    batch_size, num_links, num_channels = phi.shape
-
-    # Señal útil
-    diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
-    signal = diagH.unsqueeze(-1) * phi
-
-    # Interferencia intra-canal
-    interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
-
-    denom = sigma + interf_same
-    
-    snr = signal / (denom + eps)
-
-    # Tasa por enlace
-    rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
-    return rates
-
-
-
-# Versión 3
 # def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
-#     """Versión corregida de nuevo_get_rates"""
 #     batch_size, num_links, num_channels = phi.shape
 
 #     # Señal útil
@@ -228,32 +206,54 @@ def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_thre
 #     # Interferencia intra-canal
 #     interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
 
-#     # Interferencia por canales solapados
-#     interf_overlap = torch.zeros_like(interf_same)
-#     if num_channels > 1:
-#         left_shift = torch.roll(phi, shifts=1, dims=2)
-#         right_shift = torch.roll(phi, shifts=-1, dims=2)
-#         interf_overlap = alpha * (left_shift + right_shift)
-#     interf_overlap *= alpha
-
-#     denom = sigma + interf_same + interf_overlap
+#     denom = sigma + interf_same
     
 #     snr = signal / (denom + eps)
-
-#     for c in range(num_channels):
-#         p_ch = phi[:, :, c]
-#         recv_power = channel_matrix_batch * p_ch.unsqueeze(1)
-        
-#         tx_active = p_ch > eps
-#         seen = (recv_power >= p_rx_threshold) & (tx_active.unsqueeze(1))
-#         seen_count = seen.sum(dim=-1) 
-        
-#         invalid = seen_count >= 2
-        
-#         snr[:, :, c] = snr[:, :, c] * (~invalid).float()  
 
 #     # Tasa por enlace
 #     rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
 #     return rates
+
+
+
+# Versión 3
+def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
+    """Versión corregida de nuevo_get_rates"""
+    batch_size, num_links, num_channels = phi.shape
+
+    # Señal útil
+    diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
+    signal = diagH.unsqueeze(-1) * phi
+
+    # Interferencia intra-canal
+    interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
+
+    # Interferencia por canales solapados
+    interf_overlap = torch.zeros_like(interf_same)
+    if num_channels > 1:
+        left_shift = torch.roll(phi, shifts=1, dims=2)
+        right_shift = torch.roll(phi, shifts=-1, dims=2)
+        interf_overlap = alpha * (left_shift + right_shift)
+    interf_overlap *= alpha
+
+    denom = sigma + interf_same + interf_overlap
+    
+    snr = signal / (denom + eps)
+
+    for c in range(num_channels):
+        p_ch = phi[:, :, c]
+        recv_power = channel_matrix_batch * p_ch.unsqueeze(1)
+        
+        tx_active = p_ch > eps
+        seen = (recv_power >= p_rx_threshold) & (tx_active.unsqueeze(1))
+        seen_count = seen.sum(dim=-1) 
+        
+        invalid = seen_count >= 2
+        
+        snr[:, :, c] = snr[:, :, c] * (~invalid).float()  
+
+    # Tasa por enlace
+    rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
+    return rates
 
 
