@@ -194,6 +194,29 @@ def get_rates(phi, channel_matrix_batch, sigma):
     rates = torch.log(numerator / denominator + 1)
     return rates
 
+
+# Versión 1 y 2
+def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
+    batch_size, num_links, num_channels = phi.shape
+
+    # Señal útil
+    diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
+    signal = diagH.unsqueeze(-1) * phi
+
+    # Interferencia intra-canal
+    interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
+
+    denom = sigma + interf_same
+    
+    snr = signal / (denom + eps)
+
+    # Tasa por enlace
+    rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
+    return rates
+
+
+
+# Versión 3
 # def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
 #     """Versión corregida de nuevo_get_rates"""
 #     batch_size, num_links, num_channels = phi.shape
@@ -233,20 +256,4 @@ def get_rates(phi, channel_matrix_batch, sigma):
 #     rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
 #     return rates
 
-def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
-    batch_size, num_links, num_channels = phi.shape
 
-    # Señal útil
-    diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
-    signal = diagH.unsqueeze(-1) * phi
-
-    # Interferencia intra-canal
-    interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
-
-    denom = sigma + interf_same
-    
-    snr = signal / (denom + eps)
-
-    # Tasa por enlace
-    rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
-    return rates
