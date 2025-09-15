@@ -216,7 +216,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     #         building_id=building_id,
     #         b5g=b5g,
     #         normalized_psi=probs,
-    #         normalized_psi=psi, 
     #         normalized_psi_values=probs_values,
     #         num_layers=num_layers,
     #         K=K,

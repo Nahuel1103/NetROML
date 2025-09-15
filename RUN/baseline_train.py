@@ -26,40 +26,48 @@ from plot_results_torch import plot_results
 from gnn import GNN
 from utils import graphs_to_tensor
 from utils import get_gnn_inputs
-from utils import power_constraint
-from utils import get_rates
+from utils import power_constraint_per_ap
 from utils import objective_function
 from utils import mu_update
-from utils import channel_constraint
+# from utils import channel_constraint
 from utils import nuevo_get_rates
 
 from utils import graphs_to_tensor_synthetic
 
-def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, baseline=1, synthetic=1, rn=100, rn1=100):   
+def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
+        batch_size=64, epochs=100, eps=5e-5, mu_lr=5e-4, synthetic=1, rn=100, rn1=100,
+         sigma=1e-4,max_antenna_power_dbm=6, baseline=1):   
 
     banda = ['2_4', '5']
+    eps_str = str(f"{eps:.0e}")
+    mu_lr_str = str(f"{mu_lr:.0e}")
+
     if synthetic:
-        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(num_channels,num_features=1, b5g=b5g, building_id=building_id)
+        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
+            num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
+        )
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
     else:
-        x_tensor, channel_matrix_tensor = graphs_to_tensor(train=False, num_channels=num_channels, num_features=1, b5g=b5g, building_id=building_id)
+        x_tensor, channel_matrix_tensor = graphs_to_tensor(
+            train=False, num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
+        )
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-    mu_k = torch.ones((1,1), requires_grad = False)
-    epocs = epocs
+    max_antenna_power_mw = 10 ** (max_antenna_power_dbm / 10)
+    pmax_per_ap = max_antenna_power_mw*0.7* torch.ones((num_links,))
+    mu_k =  torch.ones((num_links,), requires_grad=False)  
 
-    pmax = num_channels
-    p0 = 4
-
-    sigma = 1e-4
-
+    # ---- Definición de red ----
     input_dim = 1
     hidden_dim = 1
-    output_dim = 1
-    num_layers = num_layers
-    dropout = False
+
+    baseline = 1
+    # Eliminar niveles de potencia, solo selección categórica de canales
+    output_dim = num_channels + 1  # [no_tx, canal_0, canal_1, canal_2, ...]
+    
+    dropout = True
     K = K
     
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
@@ -75,112 +83,91 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
     power_constraint_values = []
     loss_values = []
     mu_k_values = []
-    normalized_psi_values = []
+    probs_values = []
+    power_values = []  
+
 
     #Lo que agregamos nosotros
     channel_constraint_values = []
-    for epoc in range(epocs):
+    for epoc in range(epochs):
         print("Epoc number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
             
+            # Versión 1
             channel_matrix_batch = data.matrix
-            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_channels, num_channels)
-            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
-            psi = psi.squeeze(-1)
-            psi = psi.view(batch_size, -1)
-            psi = psi.unsqueeze(-1)
+            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) # [64, 5, 5]
+            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr) # [320, 4]
+            psi = psi.view(batch_size, num_links, num_channels+1) # [64, 5, 4]
+            probs = torch.softmax(psi, dim=-1)  
+            dist = torch.distributions.Categorical(probs=probs)  
+            actions = dist.sample()            
+            log_p = dist.log_prob(actions)     # [64, 5]
+            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)       # [64,1]
             
-            normalized_psi = torch.sigmoid(psi)*(0.99 - 0.01) + 0.01
-            if (baseline==1):
-                normalized_psi = torch.ones((batch_size, num_channels,1)) / 2
-            elif (baseline==2):
-                normalized_psi = torch.ones((batch_size, num_channels,1)) / num_channels
+            # Solo selección de canal, sin niveles de potencia
+            phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)
+            active_mask = (actions > 0)
+            active_channels = actions[active_mask] - 1
+            phi[active_mask, active_channels] = pmax_per_ap[0]/max_antenna_power_mw
 
-            normalized_psi_values.append(normalized_psi[0,:,:].squeeze(-1).detach().numpy())
+            power_constr_per_ap = power_constraint_per_ap(phi, pmax_per_ap)  # [batch_size, num_links]
+            power_constr_per_ap_mean = torch.mean(power_constr_per_ap, dim=(0,1))  
+            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=max_antenna_power_mw)
 
-            # Nuestra nueva phi
-            # normalized_phi = torch.bernoulli(torch.full((normalized_psi.shape, num_channels + 1 ), normalized_psi)) 
-            # normalized_phi = torch.bernoulli(normalized_psi.expand(-1, -1, num_channels))  # Expand normalized_psi to match the shape for Bernoulli sampling
+            sum_rate = -objective_function(rates).unsqueeze(-1) 
+            sum_rate_mean = torch.mean(sum_rate, dim=0)
 
-            #La phi del paper
-            normalized_phi = torch.bernoulli(normalized_psi)
-            log_p = normalized_phi * torch.log(normalized_psi) + (1 - normalized_phi) * torch.log(1 - normalized_psi)
-            log_p_sum = torch.sum(log_p, dim=1)
-            if (baseline==1):
-                normalized_psi = pmax/(p0*num_channels) * torch.ones((64,num_channels,1))
-                normalized_phi = torch.bernoulli(normalized_psi)
-                # normalized_phi = torch.bernoulli(normalized_psi.expand(-1, -1, num_channels))  # Expand normalized_psi to match the shape for Bernoulli sampling
-                phi = normalized_phi * p0
-            elif (baseline==2):
-                phi = normalized_phi * pmax
-
-            #Evaluación del batch
-
-            #phi = normalized_phi * p0
-            power_constr = power_constraint(phi, pmax)
-            power_constr_mean = torch.mean(power_constr, dim = 0)
-            
-            # Lo que agregamos nosotros
-            channel_constr = channel_constraint(phi, p0)
-            channel_constr_mean = torch.mean(channel_constr, dim = 0)
-
-            #rates = get_rates(phi, channel_matrix_batch, sigma,p0=p0)
-            rates = nuevo_get_rates(phi, channel_matrix_batch, sigma,p0=p0)
-
-            sum_rate = objective_function(rates)
-
-            sum_rate_mean = torch.mean(sum_rate, dim = 0)
-            
             # Actualización de la penalización
-            mu_k = mu_update(mu_k, power_constr, eps)
+            mu_k = mu_update(mu_k, power_constr_per_ap, eps) 
+
+            penalty_per_ap = power_constr_per_ap * mu_k.unsqueeze(0)  
+            total_penalty = penalty_per_ap.sum(dim=1).unsqueeze(-1)   
+
+            cost = sum_rate + total_penalty  
             
-            # Cálculo de la función de costo y backpropagation
-            cost = sum_rate + (power_constr * mu_k)
-
-            loss = cost * log_p_sum
-            loss_mean = torch.mean(loss, dim = 0)
-
+            loss = cost * log_p_sum        
+            loss_mean = loss.mean()
             optimizer.zero_grad()
+            loss_mean.backward()
+            optimizer.step()
 
             if batch_idx%10 == 0:
-                power_constraint_values.append(power_constr_mean.detach().numpy())
+                probs_mean_batch = probs.mean(dim=0)  # Promedio sobre batch: [num_links, num_channels+1]
+                probs_values.append(probs_mean_batch.detach().numpy())
+                power_constraint_values.append(power_constr_per_ap_mean.detach().numpy())
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
                 mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
 
-                #Lo que agregamos nosotros
-                channel_constraint_values.append(channel_constr_mean.detach().numpy())
-
     
-    # path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=normalized_psi, normalized_psi_values=normalized_psi_values, num_layers=num_layers, K=K, batch_size=batch_size, epocs=epocs, rn=rn, rn1=rn1, eps=eps,
+    # path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=normalized_psi, normalized_psi_values=normalized_psi_values, num_layers=num_layers, K=K, batch_size=batch_size, epochs=epochs, rn=rn, rn1=rn1, eps=eps,
     #                 objective_function_values=objective_function_values, power_constraint_values=power_constraint_values,
     #                 loss_values=loss_values, mu_k_values=mu_k_values, baseline=baseline)
     
 
     path = plot_results(
-        building_id=building_id,
-        b5g=b5g,
-        normalized_psi=normalized_psi,
-        normalized_psi_values=normalized_psi_values,
-        num_layers=num_layers,
-        K=K,
-        batch_size=batch_size,
-        epocs=epocs,
-        rn=rn,
-        rn1=rn1,
-        eps=eps,
-        objective_function_values=objective_function_values,
-        power_constraint_values=power_constraint_values,
-        channel_constraint_values=channel_constraint_values,  # <-- NUEVO
-        loss_values=loss_values,
-        mu_k_values=mu_k_values,
-        baseline=baseline
-    )
+            building_id=building_id,
+            b5g=b5g,
+            normalized_psi=probs,
+            normalized_psi_values=probs_values,
+            num_layers=num_layers,
+            K=K,
+            batch_size=batch_size,
+            epochs=epochs,
+            rn=rn,
+            rn1=rn1,
+            eps=eps,
+            objective_function_values=objective_function_values,
+            power_constraint_values=power_constraint_values,
+            loss_values=loss_values,
+            mu_k_values=mu_k_values,
+            train=True
+        )
 
 
 
     path = '/Users/nahuelpineyro/NetROML/results/'+str(banda[b5g])+'_'+str(building_id)+'/torch_results/'
-    file_name = path + 'baseline'+str(baseline)+'_'+str(epocs)+'.pkl'
+    file_name = path + 'baseline'+str(baseline)+'_'+str(epochs)+'.pkl'
     with open(file_name, 'wb') as archivo:
         pickle.dump(objective_function_values, archivo)
     
@@ -201,7 +188,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_channels', type=int, default=5)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epocs', type=int, default=150)
+    parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-5)
     parser.add_argument('--mu_lr', type=float, default=5e-5)
@@ -215,7 +202,7 @@ if __name__ == '__main__':
     print(f'num_channels: {args.num_channels}')
     print(f'num_layers: {args.num_layers}')
     print(f'k: {args.k}')
-    print(f'epocs: {args.epocs}')
+    print(f'epochs: {args.epochs}')
     print(f'batch_size: {args.batch_size}')
     print(f'eps: {args.eps}')
     print(f'mu_lr: {args.mu_lr}')
@@ -224,7 +211,7 @@ if __name__ == '__main__':
 
     
 
-    run(building_id=args.building_id, b5g=args.b5g, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epocs=args.epocs, eps=args.eps, mu_lr=args.mu_lr, baseline=args.baseline, synthetic=args.synthetic, rn=rn, rn1=rn1)
+    run(building_id=args.building_id, b5g=args.b5g, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, baseline=args.baseline, synthetic=args.synthetic, rn=rn, rn1=rn1)
     print(rn)
     print(rn1)
 
