@@ -17,13 +17,16 @@ class APNetworkEnv(gym.Env):
         # Cada AP: {0=apagado, 1, ..., num_channels} con niveles de potencia
         # action_space recibe una lista con una entrada por cada ap (*self.n_APs), 
         # y cada entrada tiene la cantidad maxima de opciones que puede tomar (self.num_channels * self.power_levels + apagado).
-        self.action_space = spaces.MultiDiscrete([(self.num_channels * self.power_levels + 1)] * self.n_APs)
+        self.action_space = spaces.MultiDiscrete(
+            [(self.num_channels * self.power_levels + 1)] * self.n_APs
+        )
         
         # Estado de la red: [canal (1..num_channels), potencia (1..power_levels)] por AP
         # Los valres del obs space son float por la GNN, pero el step deberia redondear.
         self.observation_space = spaces.Box(
-            low=np.array([1, 1], dtype=np.float32),
-            high=np.array([self.num_channels, self.power_levels], dtype=np.float32)
+            low=np.array([[0, 0]] * self.n_APs, dtype=np.float32),
+            high=np.array([[self.num_channels, self.power_levels]] * self.n_APs, dtype=np.float32),
+            dtype=np.float32
         )
 
         # ESTO ESTA COMENTADO POR SI LA INTERFERENCIA ES PARTE DEL ESTADO
@@ -31,8 +34,9 @@ class APNetworkEnv(gym.Env):
         # Estado de la red: [canal (1..num_channels), potencia (1..power_levels), interferencia ¿¿(0..1)??] por AP
         # Los valres del obs space son float por la GNN, pero el step deberia redondear.
         # self.observation_space = spaces.Box(
-        #     low=np.array([1, 1, 0], dtype=np.float32),
-        #     high=np.array([self.num_channels, self.power_levels, 1], dtype=np.float32)
+        #     low=np.array([[0, 0, 0]] * self.n_APs, dtype=np.float32),
+        #     high=np.array([[self.num_channels, self.power_levels,1]] * self.n_APs, dtype=np.float32),
+        #     dtype=np.float32
         # )
 
 
