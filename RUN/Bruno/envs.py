@@ -5,7 +5,7 @@ import numpy as np
 class APNetworkEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, n_APs=5, num_channels=3, max_power=2, max_steps=50, power_levels=3):
+    def __init__(self, n_APs=5, num_channels=3, max_power=2, max_steps=50, power_levels=3, flatten_obs=False):
         super().__init__()
 
         self.n_APs = n_APs
@@ -13,6 +13,11 @@ class APNetworkEnv(gym.Env):
         self.max_power = max_power
         self.max_steps = max_steps
         self.power_levels=power_levels
+        self.flatten_obs = flatten_obs
+
+
+
+        # DEFINO ESPACIO DE ACCIONES
 
         # Cada AP: {0=apagado, 1, ..., num_channels} con niveles de potencia
         # action_space recibe una lista con una entrada por cada ap (*self.n_APs), 
@@ -21,23 +26,22 @@ class APNetworkEnv(gym.Env):
             [(self.num_channels * self.power_levels + 1)] * self.n_APs
         )
         
-        # Estado de la red: [canal (1..num_channels), potencia (1..power_levels)] por AP
-        # Los valres del obs space son float por la GNN, pero el step deberia redondear.
-        self.observation_space = spaces.Box(
-            low=np.array([[0, 0]] * self.n_APs, dtype=np.float32),
-            high=np.array([[self.num_channels, self.power_levels]] * self.n_APs, dtype=np.float32),
-            dtype=np.float32
-        )
 
-        # ESTO ESTA COMENTADO POR SI LA INTERFERENCIA ES PARTE DEL ESTADO
-
-        # Estado de la red: [canal (1..num_channels), potencia (1..power_levels), interferencia ¿¿(0..1)??] por AP
-        # Los valres del obs space son float por la GNN, pero el step deberia redondear.
-        # self.observation_space = spaces.Box(
-        #     low=np.array([[0, 0, 0]] * self.n_APs, dtype=np.float32),
-        #     high=np.array([[self.num_channels, self.power_levels,1]] * self.n_APs, dtype=np.float32),
-        #     dtype=np.float32
-        # )
+        # DEFINO ESPACIO DE OBSERVACIÓN
+        if self.flatten_obs:
+            # Observaciones como vector 1D
+            self.observation_space = spaces.Box(
+                low=np.zeros(self.n_APs * 2, dtype=np.float32),
+                high=np.array([self.num_channels, self.power_levels] * self.n_APs, dtype=np.float32),
+                dtype=np.float32
+            )
+        else:
+            # Observaciones como matriz (n_APs, 2)
+            self.observation_space = spaces.Box(
+                low=np.array([[0, 0]] * self.n_APs, dtype=np.float32),
+                high=np.array([[self.num_channels, self.power_levels]] * self.n_APs, dtype=np.float32),
+                dtype=np.float32
+            )
 
 
         self.state = None
@@ -49,19 +53,21 @@ class APNetworkEnv(gym.Env):
         super().reset(seed=seed)
         self.current_step = 0
 
-        # Estado inicial aleatorio 
-        
+        # Estado inicial aleatorio
+         
         # Canal: 1..num_channels
-        canales = np.random.randint(1, self.num_channels + 1, size=(self.n_APs, 1), dtype=np.float32)
+        canales = np.random.randint(1, self.num_channels + 1, size=(self.n_APs, 1)).astype(np.float32)
         # Potencia: 1..power_levels
-        potencias = np.random.randint(1, self.power_levels + 1, size=(self.n_APs, 1), dtype=np.float32)
+        potencias = np.random.randint(1, self.power_levels + 1, size=(self.n_APs, 1)).astype(np.float32)
         
-        # ESTO ESTA COMENTADO POR SI LA INTERFERENCIA ES PARTE DEL ESTADO
-        # Interferencia: 0..1
-        # interferencia = np.random.rand(self.n_APs, 1).astype(np.float32)
-        # self.state = np.hstack([canales, potencias, interferencia])
+
         
-        self.state = np.hstack([canales, potencias])
+        state = np.hstack([canales, potencias])
+
+        if self.flatten_obs:
+            state = state.flatten()
+
+        self.state = state
 
         return self.state, {}
 
@@ -94,12 +100,18 @@ class APNetworkEnv(gym.Env):
         new_state[active_mask, 0] = canales
         new_state[active_mask, 1] = potencias
 
+
         # Este será el siguiente estado de la red
-        self.state = new_state
+        if self.flatten_obs:
+            self.state = new_state.flatten()
+        else:
+            self.state = new_state
+
 
         # Reward de ejemplo: suma de potencias activas
         # HAY QUE EDITARLO
-        reward = np.sum(self.state[:, 1])
+        # reward = float(np.sum(self.state[:, 1]))
+        reward = float(np.sum(new_state[:, 1]))
 
         # terminated se usaría si, cumplida una condición, debe empezar el siguiente paso reseteando el state.
         terminated = False
