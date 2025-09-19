@@ -120,7 +120,7 @@ class APNetworkEnv(gym.Env):
         canales = np.random.randint(1, self.num_channels + 1, size=(self.n_APs, 1)).astype(np.float32)
         # Potencia: 1..n_power_levels
         indices_pot = np.random.randint(0, self.n_power_levels, size=(self.n_APs, 1))
-        potencias = self.power_levels[indices_pot]
+        potencias = self.power_levels[indices_pot].astype(np.float32)
         
         state = np.hstack([canales, potencias])
 
@@ -185,7 +185,7 @@ class APNetworkEnv(gym.Env):
 
         # Vemos que potencia usan (solo para los activos)
         indices_asignacion_potencias = a_adj % self.n_power_levels        # potencias que eligió cada uno (indices en el array de posibles)
-        potencias = self.power_levels[indices_asignacion_potencias]        # potencas reales pero que eliguó cada uno
+        potencias = self.power_levels[indices_asignacion_potencias].astype(np.float32)        # potencas reales pero que eliguó cada uno
 
         # Asignamos de una sola vez
         new_state[active_mask, 0] = canales

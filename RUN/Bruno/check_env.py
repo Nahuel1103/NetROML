@@ -1,3 +1,6 @@
+# Mini script que chequea si un entorno cumple con todo lo requerido por la API de Gymnasium
+
+
 from stable_baselines3.common.env_checker import check_env
 
 # Importá tu clase desde envs.py

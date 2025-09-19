@@ -5,7 +5,7 @@ from stable_baselines3 import PPO
 from envs import APNetworkEnv
 
 # Creo el entorno (el nuestro custom)
-env = APNetworkEnv(n_APs=5, num_channels=3, power_levels=2, flatten_obs=True)
+env = APNetworkEnv(n_APs=5, num_channels=3, n_power_levels=2, flatten_obs=True)
 
 # Creo el agente
 agent = PPO("MlpPolicy", env, verbose=1)
