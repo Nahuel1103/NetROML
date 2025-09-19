@@ -11,9 +11,41 @@ class APNetworkEnv(gym.Env):
     transmitir los APs (P0). 
     
     Compatible con Gymnasium.
+
+    ------------------------
+    Espacio de observaciones
+    ------------------------
+    Representa el estado actual de cada AP. Depende del parámetro `flatten_obs`:
+
+    - Si flatten_obs=False: matriz de tamaño (n_APs, 2)
+        - columna 0: canal asignado al AP (1..num_channels)
+        - columna 1: potencia actual del AP (valor float entre 0 y P0)
+
+    - Si flatten_obs=True: vector 1D de tamaño n_APs*2
+        - orden: [canal_1, potencia_1, canal_2, potencia_2, ..., canal_n, potencia_n]
+
+    --------------------
+    Espacio de acciones
+    --------------------
+    Vector de tamaño n_APs (MultiDiscrete), donde cada elemento representa la acción de un AP:
+
+        - 0: AP apagado
+        - 1..(num_channels * n_power_levels): combinación de canal y nivel de potencia
+          (el canal y la potencia elegida se decodifican mediante división y módulo usando n_power_levels)
+
+        Ejemplo:
+        Supongamos n_APs=2, num_channels=2, n_power_levels=2. 
+        Entonces cada acción puede ir de 0 a 4:
+
+        Acción 0: AP apagado
+        Acción 1: canal 1, potencia nivel 1
+        Acción 2: canal 1, potencia nivel 2
+        Acción 3: canal 2, potencia nivel 1
+        Acción 4: canal 2, potencia nivel 2
     """
 
     metadata = {"render_modes": ["human"]}
+
 
     def __init__(self, n_APs=5, num_channels=3, P0=2, n_power_levels=3, power_levels_explicit=None, Pmax=0.7, max_steps=50, flatten_obs=False):
         """
@@ -61,10 +93,7 @@ class APNetworkEnv(gym.Env):
 
 
         # DEFINO ESPACIO DE ACCIONES
-
-        # Cada AP: {0=apagado, 1, ..., num_channels} con niveles de potencia
-        # action_space recibe una lista con una entrada por cada ap (*self.n_APs), 
-        # y cada entrada tiene la cantidad maxima de opciones que puede tomar (self.num_channels * self.n_power_levels + apagado).
+        # Matriz con tamaño (cantidad de acciones posibles * n_APs)
         self.action_space = spaces.MultiDiscrete(
             [(self.num_channels * self.n_power_levels + 1)] * self.n_APs
         )
@@ -174,7 +203,7 @@ class APNetworkEnv(gym.Env):
         # Inicializamos estado nuevo con ceros
         new_state = np.zeros((self.n_APs, 2), dtype=np.float32)
 
-        # Máscara: cuáles APs están activos (no apagado)
+        # Máscara con APs activos (no apagados)
         active_mask = action > 0
 
         # Ajustamos acciones (para que 0 quede apagado y el resto arranque desde 0)
