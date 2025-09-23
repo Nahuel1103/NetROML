@@ -47,7 +47,7 @@ class APNetworkEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
 
 
-    def __init__(self, n_APs=5, num_channels=3, P0=2, n_power_levels=3, power_levels_explicit=None, Pmax=0.7, max_steps=50, flatten_obs=False):
+    def __init__(self, n_APs=5, num_channels=3, P0=2, n_power_levels=3, power_levels_explicit=None, Pmax=0.7, max_steps=500, flatten_obs=False):
         """
         Inicializa el entorno de red de APs.
 
@@ -76,7 +76,6 @@ class APNetworkEnv(gym.Env):
 
         self.n_APs = n_APs
         self.num_channels = num_channels
-        self.Pmax = Pmax
         self.max_steps = max_steps
         self.flatten_obs = flatten_obs
 
@@ -90,6 +89,7 @@ class APNetworkEnv(gym.Env):
             self.P0 = P0
             self.power_levels = (np.arange(1, self.n_power_levels + 1) / self.n_power_levels) * self.P0
 
+        self.Pmax = P0*Pmax
 
 
         # DEFINO ESPACIO DE ACCIONES
@@ -118,6 +118,8 @@ class APNetworkEnv(gym.Env):
 
         self.state = None
         self.current_step = 0
+        self.power_history = []  #Para guardar el histórico de potencias
+
 
 
 
@@ -157,6 +159,8 @@ class APNetworkEnv(gym.Env):
             state = state.flatten()
 
         self.state = state
+
+        self.power_history = []   # Reiniciar historial de potencias
 
         return self.state, {}
 
@@ -216,9 +220,14 @@ class APNetworkEnv(gym.Env):
         indices_asignacion_potencias = a_adj % self.n_power_levels        # potencias que eligió cada uno (indices en el array de posibles)
         potencias = self.power_levels[indices_asignacion_potencias].astype(np.float32)        # potencas reales pero que eliguó cada uno
 
-        # Asignamos de una sola vez
+        # Asignamos todo de una sola vez
         new_state[active_mask, 0] = canales
         new_state[active_mask, 1] = potencias
+
+        # Guardar todas las potencias del paso actual en el histórico
+        powers_this_step = np.zeros(self.n_APs, dtype=np.float32)
+        powers_this_step[active_mask] = potencias
+        self.power_history.append(powers_this_step)
 
 
         # Este será el siguiente estado de la red
@@ -228,9 +237,14 @@ class APNetworkEnv(gym.Env):
             self.state = new_state
 
 
+        # Promedio histórico de potencia por AP
+        avg_power = np.mean(self.power_history, axis=0)
+        
         # Reward de ejemplo: suma de potencias activas
         # HAY QUE EDITARLO
-        reward = float(np.sum(new_state[:, 1]))
+        # Penalización si algún AP supera Pmax
+        penalty = np.sum(np.maximum(avg_power - self.Pmax, 0))
+        reward = float(np.sum(new_state[:, 1])) - 5.0 * penalty  # 5.0 es un peso de castigo, habria que editarlo
         
 
         # terminated se usaría si, cumplida una condición, debe empezar el siguiente paso reseteando el state.
@@ -241,7 +255,8 @@ class APNetworkEnv(gym.Env):
 
         # {} es un diccionario opcional que se usa para devolver información extra que no forma parte del estado, 
         # pero puede ser útil para debugging, logging o métricas.
-        return self.state, reward, terminated, truncated, {}
+        info = {"avg_power": avg_power}
+        return self.state, reward, terminated, truncated, info
 
 
 
