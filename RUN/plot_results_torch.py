@@ -33,7 +33,7 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
         else:
             path = path + '_baseline' + str(baseline) + '/'
     else:
-        path = '/Users/nahuelpineyro/NetROML//results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1) + '/'
+        path = '/Users/nahuelpineyro/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1) + '/'
 
 
     if not os.path.exists(path):
@@ -99,7 +99,7 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
 
 # Versión 1
     if (len(normalized_psi_values) > 0):
-        normalized_psi_array = np.array(normalized_psi_values)  # [iterations, num_links, num_channels+1]
+        normalized_psi_array = np.array(normalized_psi_values) 
         
         num_nodes = normalized_psi_array.shape[1]
         num_channels = normalized_psi_array.shape[2]
