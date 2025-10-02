@@ -68,3 +68,17 @@ def compute_reward(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, lambda_p=0
     return reward  # [batch]
 
 
+
+def get_reward(mu_power,power_history, Pmax, phi, channel_matrix_batch, sigma, p0=4, alpha=0.3):
+    # cambiar este mu
+    mu=0.5
+    
+    avg_power = np.mean(power_history, axis=0)   # [nAPs,1]
+
+    power_penalty_per_AP = avg_power - Pmax
+    power_penalty=np.sum(power_penalty_per_AP)
+
+    all_rates=nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3)
+    rate = torch.sum(all_rates,dim=1)
+    
+    reward = rate - mu_power*power_penalty

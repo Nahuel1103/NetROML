@@ -1,6 +1,7 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+from rates import get_reward
 
 class APNetworkEnv(gym.Env):
     """
@@ -47,7 +48,7 @@ class APNetworkEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
 
 
-    def __init__(self, n_APs=5, num_channels=3, P0=2, n_power_levels=3, power_levels_explicit=None, Pmax=0.7, max_steps=500, flatten_obs=False):
+    def __init__(self, n_APs=5, num_channels=3, P0=4, n_power_levels=3, power_levels_explicit=None, Pmax=0.7, max_steps=500, flatten_obs=False):
         """
         Inicializa el entorno de red de APs.
 
@@ -238,13 +239,11 @@ class APNetworkEnv(gym.Env):
 
 
         # Promedio histórico de potencia por AP
-        avg_power = np.mean(self.power_history, axis=0)
         
         # Reward de ejemplo: suma de potencias activas
         # HAY QUE EDITARLO
         # Penalización si algún AP supera Pmax
-        penalty = np.sum(np.maximum(avg_power - self.Pmax, 0))
-        reward = float(np.sum(new_state[:, 1])) - 5.0 * penalty  # 5.0 es un peso de castigo, habria que editarlo
+        reward = get_reward(self.power_history, self.Pmax, phi, channel_matrix_batch, sigma, p0=4, alpha=0.3)
         
 
         # terminated se usaría si, cumplida una condición, debe empezar el siguiente paso reseteando el state.
@@ -255,7 +254,8 @@ class APNetworkEnv(gym.Env):
 
         # {} es un diccionario opcional que se usa para devolver información extra que no forma parte del estado, 
         # pero puede ser útil para debugging, logging o métricas.
-        info = {"avg_power": avg_power}
+
+        info = {"avg_power": np.mean(self.power_history, axis=0)}
         return self.state, reward, terminated, truncated, info
 
 
