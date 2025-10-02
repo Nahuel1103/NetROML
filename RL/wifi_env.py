@@ -3,6 +3,7 @@ from gymnasium import spaces
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch_geometric.loader import DataLoader
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 import pickle
@@ -22,14 +23,18 @@ from utils import (
 
 @dataclass
 class WirelessConfig:
-    """Configuración del entorno wireless usando tu estructura existente"""
+    """
+    Configuración del entorno wireless
+    """
     building_id: int = 990
     b5g: bool = False
     num_links: int = 5
     num_channels: int = 3
     num_layers: int = 5
+    batch_size: int = 64
     K: int = 3
-    p0: float = 4.0  # Potencia máxima
+    max_antenna_power_dbm: int = 6
+    p0: float = 10 ** (max_antenna_power_dbm / 10)  # Potencia máxima
     sigma: float = 1e-4  # Ruido
     synthetic: bool = True
     eps: float = 5e-4  # Para mu_update
@@ -50,15 +55,15 @@ class WirelessGNNEnvironment(gym.Env):
         self.num_channels = self.config.num_channels
         self.p0 = self.config.p0
         
-        # Configuración de potencias (usando tu estructura existente)
+        # Configuración de potencias
         self.power_levels = torch.tensor([self.p0/2, self.p0])
         self.num_power_levels = len(self.power_levels)
-        self.pmax_per_ap = 0.8*self.p0*torch.ones(self.num_links)
-        
-        # Cargar datos (usando tus funciones existentes)
+        self.pmax_per_ap = 0.8*self.p0*torch.ones((self.num_links),) 
+
+        # Cargar datos
         self._load_data()
         
-        # Inicializar GNN (usando tu arquitectura existente)
+        # Inicializar GNN
         self._setup_gnn()
         
         # Definir espacios
@@ -67,14 +72,16 @@ class WirelessGNNEnvironment(gym.Env):
         # Estado del entorno
         self.current_data_idx = 0
         self.current_phi = None
-        self.mu_k = torch.ones(self.num_links, requires_grad=False)
+        self.mu_k = torch.ones((self.num_links,), requires_grad=False)
         self.step_count = 0
         
         # Tracking de exploración
         self.exploration_stats = self._init_exploration_tracking()
         
     def _load_data(self):
-        """Cargar datos usando tus funciones existentes"""
+        """
+        Cargar datos usando funciones existentes
+        """
         if self.config.synthetic:
             x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
                 num_links=self.num_links,
@@ -82,6 +89,8 @@ class WirelessGNNEnvironment(gym.Env):
                 b5g=self.config.b5g,
                 building_id=self.config.building_id
             )
+            self.dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+            self.dataloader = DataLoader(self.dataset[:7000], batch_size=self.batch_size, shuffle=True, drop_last=True)
         else:
             x_tensor, channel_matrix_tensor = graphs_to_tensor(
                 train=True,
@@ -90,21 +99,21 @@ class WirelessGNNEnvironment(gym.Env):
                 b5g=self.config.b5g,
                 building_id=self.config.building_id
             )
-        
-        # Convertir a dataset GNN usando tu función
-        self.dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
-        self.dataset_size = len(self.dataset)
+            self.dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+            self.dataloader = DataLoader(self.dataset, batch_size=self.config.batch_size, shuffle=True, drop_last=True)
+        self.dataset_size = len(self.dataloader)
         
         print(f"Datos cargados: {self.dataset_size} muestras")
         
     def _setup_gnn(self):
-        """Configurar GNN usando tu arquitectura existente"""
+        """
+        Configurar GNN usando arquitectura existente
+        """
         input_dim = 1
         hidden_dim = 1
         
         # Calcular dimensiones como en tu código
-        num_actions = 1 + self.num_channels*self.num_power_levels
-        output_dim = num_actions
+        output_dim = 1 + self.num_channels*self.num_power_levels
         
         self.gnn_model = GNN(
             input_dim=input_dim,
@@ -116,10 +125,12 @@ class WirelessGNNEnvironment(gym.Env):
         )
         
         print(f"GNN configurado: {input_dim} -> {hidden_dim} -> {output_dim}")
-        print(f"Acciones posibles por link: {num_actions}")
+        print(f"Acciones posibles por link: {output_dim}")
         
     def _setup_spaces(self):
-        """Configurar espacios de acción y observación"""
+        """
+        Configurar espacios de acción y observación
+        """
         # Espacio de acciones: cada link elige una acción
         num_actions = 1 + self.num_channels*self.num_power_levels
         self.action_space = spaces.MultiDiscrete([num_actions]*self.num_links)
@@ -155,7 +166,7 @@ class WirelessGNNEnvironment(gym.Env):
     
     def _decode_actions_to_phi(self, actions: np.ndarray) -> torch.Tensor:
         """
-        Convertir acciones del entorno a phi usando tu lógica existente
+        Convertir acciones del entorno a phi
         """
         phi = torch.zeros(1, self.num_links, self.num_channels)  # batch_size=1
         
@@ -177,13 +188,18 @@ class WirelessGNNEnvironment(gym.Env):
         return phi
     
     def _get_current_data(self):
-        """Obtener el dato actual del dataset"""
-        return self.dataset[self.current_data_idx]
+        """
+        Obtener el dato actual del dataset
+        """
+        return self.dataloader[self.current_data_idx]
     
-    def _compute_gnn_probabilities(self, data):
-        """Usar tu GNN para obtener probabilidades"""
+    def _compute_gnn_probabilities(self):
+        """
+        Usar tu GNN para obtener probabilidades
+        """
         with torch.no_grad():
             # Expandir para batch_size=1
+            data = self._get_current_data()
             data_batch = data.clone()
             data_batch.x = data_batch.x.unsqueeze(0) if data_batch.x.dim() == 2 else data_batch.x
             
@@ -197,7 +213,9 @@ class WirelessGNNEnvironment(gym.Env):
             return probs
     
     def _get_observation(self):
-        """Construir observación del estado actual"""
+        """
+        Construir observación del estado actual
+        """
         data = self._get_current_data()
         
         # Channel matrix flattened
@@ -226,7 +244,9 @@ class WirelessGNNEnvironment(gym.Env):
         return obs.numpy().astype(np.float32)
     
     def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None):
-        """Reiniciar entorno"""
+        """
+        Reiniciar entorno
+        """
         super().reset(seed=seed)
         
         if seed is not None:
@@ -254,7 +274,9 @@ class WirelessGNNEnvironment(gym.Env):
         return observation, info
     
     def step(self, actions: np.ndarray):
-        """Ejecutar un step usando tu lógica existente"""
+        """
+        Ejecutar un step
+        """
         # Obtener datos actuales
         data = self._get_current_data()
         
@@ -352,11 +374,15 @@ class WirelessGNNEnvironment(gym.Env):
                     print(f"  Link {i}: {cov:.1%}")
     
     def close(self):
-        """Limpiar recursos"""
+        """
+        Limpiar recursos
+        """
         pass
     
     def get_exploration_report(self):
-        """Obtener reporte detallado de exploración"""
+        """
+        Obtener reporte detallado de exploración
+        """
         report = {}
         for link_idx in range(self.num_links):
             stats = self.exploration_stats[link_idx]
@@ -372,7 +398,9 @@ class WirelessGNNEnvironment(gym.Env):
 
 # Función helper
 def make_wireless_gnn_env(config: WirelessConfig = None):
-    """Crear instancia del entorno con tu código integrado"""
+    """
+    Crear instancia del entorno
+    """
     return WirelessGNNEnvironment(config)
 
 # Ejemplo de uso

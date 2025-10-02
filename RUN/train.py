@@ -66,7 +66,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     input_dim = 1
     hidden_dim = 1  # Escala con el número de enlaces
 
-    power_levels = torch.tensor([0, p0/2, p0])   
+    power_levels = torch.tensor([p0/2, p0])   
     num_power_levels = len(power_levels)
 
     # Calcular num_actions dinámicamente
