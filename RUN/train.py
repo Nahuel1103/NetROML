@@ -29,33 +29,40 @@ from utils import get_gnn_inputs
 from utils import power_constraint_per_ap
 from utils import objective_function
 from utils import mu_update
-# from utils import channel_constraint
 from utils import nuevo_get_rates
 
+
 from utils import graphs_to_tensor_synthetic
+from utils import graphs_to_tensor_sc
 
-
-def run(building_id=990, b5g=False, num_links=5, num_channels=4, num_layers=5, K=3,
+def run(building_id=990, b5g=False, num_links=5, num_channels=6, num_layers=5, K=3,
         batch_size=64, epochs=100, eps=5e-5, mu_lr=5e-4, synthetic=1, rn=100, rn1=100,
-         sigma=1e-4,max_antenna_power_dbm=6):   
+         sigma=1e-4,max_antenna_power_dbm=6, sanitycheck=True):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
     mu_lr_str = str(f"{mu_lr:.0e}")
 
     if synthetic:
-        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
-            num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
-        )
-        dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
-        dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
+        if sanitycheck:
+            x_tensor, channel_matrix_tensor = graphs_to_tensor_sc(
+                num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
+            )
+            dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+            dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
+
+        else:
+            x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
+                num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
+            )
+            dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+            dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
     else:
         x_tensor, channel_matrix_tensor = graphs_to_tensor(
             train=True, num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
         )
         dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-
 
 
 
@@ -104,16 +111,10 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=4, num_layers=5, K
             # Versión 1
             channel_matrix_batch = data.matrix
             channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) 
-            
-            # if epoc ==1 and batch_idx ==1:
-            #     print(channel_matrix_batch[0,:,:])
-            #     print(channel_matrix_batch[1,:,:])
-            #     print(channel_matrix_batch[2,:,:])
-            #     print(channel_matrix_batch[3,:,:])
 
                 
-            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr) # [320, 4]
-            psi = psi.view(batch_size, num_links, num_channels+1) # [64, 5, 4]
+            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr) 
+            psi = psi.view(batch_size, num_links, num_channels+1) 
             probs = torch.softmax(psi, dim=-1)  
             dist = torch.distributions.Categorical(probs=probs)  
             actions = dist.sample()            
@@ -124,7 +125,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=4, num_layers=5, K
             phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)
             active_mask = (actions > 0)
             active_channels = actions[active_mask] - 1
-            phi[active_mask, active_channels] = max_antenna_power_mw  # Usar potencia fija p0
+            phi[active_mask, active_channels] = max_antenna_power_mw  
             #------------------------------------------------------------------------
 
             #------------------------------------------------------------------------
@@ -191,6 +192,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=4, num_layers=5, K
             loss_mean.backward()
             optimizer.step()
 
+
             if batch_idx%10 == 0:
 
             #------------------------------------------------------------------------
@@ -216,14 +218,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=4, num_layers=5, K
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
                 mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
-        # if epoc % 10 == 0:
-        #     print("=== SANITY CHECK ===")
-        #     print("Channel matrix batch mean:", channel_matrix_batch.mean().item())
-        #     print("Phi (potencias):", phi[0].detach())  # Primera muestra del batch
-        #     print("Rates:", rates[0].detach())  # Tasas de la primera muestra
-        #     print("Sum rate:", sum_rate[0].detach())  # Sum rate de la primera muestra
-        #     print("Power constraint:", power_constr_per_ap[0].detach())
-        #     print("====================")
     
 
     for name, param in gnn_model.named_parameters():
@@ -297,13 +291,12 @@ if __name__ == '__main__':
 
     parser.add_argument('--building_id', type=int, default=990)
     parser.add_argument('--b5g', type=int, default=0)
-    # parser.add_argument('--num_links', type=int, default=5)
-    parser.add_argument('--num_links', type=int, default=4)
+    parser.add_argument('--num_links', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=3)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--eps', type=float, default=5e-5)
+    parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
     parser.add_argument('--synthetic', type=int, default=1)
     
@@ -320,5 +313,5 @@ if __name__ == '__main__':
     print(f'mu_lr: {args.mu_lr}')
     print(f'synthetic: {args.synthetic}')
     
-    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
+    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1, sanitycheck=True)
     print('Seeds: {} and {}'.format(rn, rn1))

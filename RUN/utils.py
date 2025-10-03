@@ -137,71 +137,61 @@ def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, buildin
     return x_tensor, channel_matrix_tensor
 
 
-# def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
+def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
     
-#     band = ['2_4', '5']
-#     path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
-#     file_name = 'synthetic_graphs.pkl'
-#     with open(path + file_name, 'rb') as archivo:
-#         graphs = pickle.load(archivo)
-#     x_list = []
-#     channel_matrix_list = []
-#     x = torch.zeros((num_links,num_features)) 
-#     for graph in graphs:
-#         channel_matrix_list.append(torch.tensor(graph))
-#         x_list.append(x)
-#     channel_matrix_tensor = torch.stack(channel_matrix_list)
-#     x_tensor = torch.stack(x_list)
-#     return x_tensor, channel_matrix_tensor
-
-
-def graphs_to_tensor_synthetic(num_links=4, num_features=1, b5g=False, building_id=990):
-    """
-    Crea datos sintéticos que replican mejor la estructura real observada
-    """
-    num_samples = 64000
-    
+    band = ['2_4', '5']
+    path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    file_name = 'synthetic_graphs.pkl'
+    with open(path + file_name, 'rb') as archivo:
+        graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
+    x = torch.zeros((num_links,num_features)) 
+    for graph in graphs:
+        channel_matrix_list.append(torch.tensor(graph))
+        x_list.append(x)
+    channel_matrix_tensor = torch.stack(channel_matrix_list)
+    x_tensor = torch.stack(x_list)
+    return x_tensor, channel_matrix_tensor
+
+
+def graphs_to_tensor_sc(num_links, num_features = 1, b5g = False, building_id = 990):
     
-    for _ in range(num_samples):
-        H_matrix = np.zeros((num_links, num_links))
-        
-        # PAR 1: Nodos 0 y 1 (replicando estructura real)
-        H_matrix[0, 0] = np.random.uniform(1e-05, 1e-1) 
-        H_matrix[1, 1] = np.random.uniform(1e-05, 1e-1)  
-        
-        H_matrix[2, 2] = np.random.uniform(1e-03, 1e-2)  
-        H_matrix[3, 3] = np.random.uniform(1e-02, 2e-2)  
-        
-        # Interferencia entre pares - MUY DÉBIL
-        H_matrix[0, 2] = np.random.uniform(1e-06, 1e-05)
-        H_matrix[1, 3] = np.random.uniform(1e-06, 1e-05)  
-        H_matrix[2, 0] = np.random.uniform(1e-06, 1e-05)  
-        H_matrix[3, 1] = np.random.uniform(1e-06, 1e-05)  
-        H_matrix[0, 3] = np.random.uniform(1e-06, 1e-05)  
-        H_matrix[1, 2] = np.random.uniform(1e-06, 1e-05) 
-        H_matrix[2, 1] = np.random.uniform(1e-07, 1e-06)  
-        H_matrix[3, 0] = np.random.uniform(1e-07, 1e-06)  
+    band = ['2_4', '5']
+    path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    file_name = 'sc_graphs.pkl'
+    with open(path + file_name, 'rb') as archivo:
+        graphs = pickle.load(archivo)
+    x_list = []
+    channel_matrix_list = []
+    x = torch.zeros((num_links,num_features)) 
+    for graph in graphs:
+        channel_matrix_list.append(torch.tensor(graph))
+        x_list.append(x)
+    channel_matrix_tensor = torch.stack(channel_matrix_list)
+    x_tensor = torch.stack(x_list)
+    return x_tensor, channel_matrix_tensor
 
-        # Comunicación dentro de cada par - FUERTE (con posibilidad de +5)
-        add_5 = np.random.choice([0.0, 5.0])
-        H_matrix[0, 1] = np.random.uniform(0.1, 1.0) + add_5  
-        
-        add_5 = np.random.choice([0.0, 5.0])
-        H_matrix[1, 0] = np.random.uniform(0.1, 1.0) + add_5  
 
-        add_5 = np.random.choice([0.0, 5.0])
-        H_matrix[2, 3] = np.random.uniform(0.1, 1.0) + add_5  
-        
-        add_5 = np.random.choice([0.0, 5.0])
-        H_matrix[3, 2] = np.random.uniform(0.1, 1.0) + add_5  
-        
-        channel_matrix_list.append(torch.tensor(H_matrix).float())
-        x_list.append(torch.zeros((num_links, num_features)))
+
+def zero_out_last_links(channel_matrix, num_links_to_keep=3):
+    """
+    Pone en cero todos los coeficientes de canal de los últimos enlaces.
     
-    return torch.stack(x_list), torch.stack(channel_matrix_list)
-
+    Args:
+        channel_matrix: Tensor de forma [batch_size, num_links, num_links]
+        num_links_to_keep: Número de enlaces a mantener activos (default=3)
+    
+    Returns:
+        channel_matrix modificada con últimos enlaces en cero
+    """
+    modified_matrix = channel_matrix.clone()
+    
+    # Poner en cero todas las filas y columnas de los últimos enlaces
+    modified_matrix[:, num_links_to_keep:, :] = 0  # Filas de enlaces 3 y 4
+    modified_matrix[:, :, num_links_to_keep:] = 0  # Columnas de enlaces 3 y 4
+    
+    return modified_matrix
 
 
 
