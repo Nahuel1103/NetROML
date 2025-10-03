@@ -1,6 +1,6 @@
 """
-Sistema de Entrenamiento para Políticas de Asignación de Potencia
-Utiliza Redes Neuronales de Grafos y aprendizaje por refuerzo.
+Sistema de Entrenamiento para Políticas de Asignación de Potencia (CORREGIDO)
+Utiliza Redes Neuronales de Grafos y aprendizaje por refuerzo con REINFORCE.
 """
 
 import torch
@@ -26,29 +26,68 @@ class GNNAgent:
         self.num_links = num_links
         self.num_actions = num_actions
         
-    def predict(self, graph_data):
+    def predict(self, graph_data, training=False):
         """
         Genera decisiones de asignación de potencia basadas en el estado actual.
+        
+        Args:
+            graph_data: Datos del grafo de entrada
+            training: Si True, mantiene el grafo computacional para backprop
         
         Returns:
             actions: Vector de decisiones discretas por enlace
             action_probs: Distribución de probabilidad de las decisiones
+            log_probs: Log-probabilidades para REINFORCE (solo si training=True)
         """
-        with torch.no_grad():
+        if training:
+            # Modo entrenamiento: mantener gradientes
             psi = self.gnn_model.forward(graph_data.x, graph_data.edge_index, graph_data.edge_attr)
-            psi = psi.view(1, self.num_links, -1)
+            
+            # DEBUG: Verificar dimensiones
+            batch_size = graph_data.x.size(0) // self.num_links
+            
+            # Reshape: [batch_size * num_links, output_dim] -> [batch_size, num_links, num_actions]
+            psi = psi.view(batch_size, self.num_links, self.num_actions)
+            
+            # Tomar solo el primer elemento del batch
+            psi = psi[0:1]  # Shape: [1, num_links, num_actions]
+            
             probs = torch.softmax(psi, dim=-1)
             
             # Estabilización numérica
-            probs = torch.clamp(probs, min=1e-8)
+            probs = torch.clamp(probs, min=1e-8, max=1.0)
             probs = probs / probs.sum(dim=-1, keepdim=True)
-            if not torch.all(torch.isfinite(probs)):
-                probs = torch.where(torch.isfinite(probs), probs, torch.ones_like(probs) / probs.size(-1))
+            
+            # Verificar que probs tenga la forma correcta
+            assert probs.shape == (1, self.num_links, self.num_actions), \
+                f"Shape incorrecto: {probs.shape}, esperado (1, {self.num_links}, {self.num_actions})"
             
             dist = torch.distributions.Categorical(probs=probs)
             actions = dist.sample().squeeze(0)
+            log_probs = dist.log_prob(actions)
             
-        return actions.numpy(), probs.squeeze(0).cpu().numpy()
+            # Validar que las acciones estén en el rango correcto
+            assert torch.all(actions >= 0) and torch.all(actions < self.num_actions), \
+                f"Acciones fuera de rango: {actions}, min={actions.min()}, max={actions.max()}"
+            
+            return actions, probs.squeeze(0), log_probs
+        else:
+            # Modo inferencia: sin gradientes
+            with torch.no_grad():
+                psi = self.gnn_model.forward(graph_data.x, graph_data.edge_index, graph_data.edge_attr)
+                
+                batch_size = graph_data.x.size(0) // self.num_links
+                psi = psi.view(batch_size, self.num_links, self.num_actions)
+                psi = psi[0:1]
+                
+                probs = torch.softmax(psi, dim=-1)
+                probs = torch.clamp(probs, min=1e-8, max=1.0)
+                probs = probs / probs.sum(dim=-1, keepdim=True)
+                
+                dist = torch.distributions.Categorical(probs=probs)
+                actions = dist.sample().squeeze(0)
+                
+            return actions.numpy(), probs.squeeze(0).cpu().numpy(), None
 
 
 def train_gym(building_id=990, b5g=0, num_links=5, num_channels=3, num_power_levels=2, 
@@ -57,8 +96,8 @@ def train_gym(building_id=990, b5g=0, num_links=5, num_channels=3, num_power_lev
     """
     Loop principal de entrenamiento para políticas de asignación de potencia.
     
-    Combina optimización Lagrangiana con gradientes de política para
-    entrenar redes neuronales en problemas con restricciones.
+    Combina optimización Lagrangiana con REINFORCE para entrenar redes neuronales 
+    en problemas con restricciones.
     """
     
     # Configuración de reproducibilidad
@@ -95,11 +134,25 @@ def train_gym(building_id=990, b5g=0, num_links=5, num_channels=3, num_power_lev
 
     # Inicialización del modelo
     input_dim = 1
-    hidden_dim = 1
+    hidden_dim = 16  # Aumentado para mejor capacidad
     output_dim = num_actions
     dropout = False
     
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
+    
+    # DEBUG: Verificar la salida de la GNN con datos de prueba
+    print("\n=== DEBUG: Verificando arquitectura GNN ===")
+    observation, info = env.reset()
+    test_graph = info["graph_data"]
+    with torch.no_grad():
+        test_output = gnn_model.forward(test_graph.x, test_graph.edge_index, test_graph.edge_attr)
+        print(f"Input shape: x={test_graph.x.shape}, edge_index={test_graph.edge_index.shape}")
+        print(f"Output shape de GNN: {test_output.shape}")
+        print(f"Esperado: [{batch_size * num_links}, {num_actions}]")
+        print(f"Output_dim configurado: {output_dim}")
+        print(f"Primeros valores de salida: {test_output[:5, :].flatten()[:10]}")
+    print("=" * 50 + "\n")
+    
     optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
 
     agent = GNNAgent(gnn_model, num_links, num_actions)
@@ -111,32 +164,78 @@ def train_gym(building_id=990, b5g=0, num_links=5, num_channels=3, num_power_lev
     mu_k_values = []
     probs_values = []
 
-    print("Iniciando proceso de entrenamiento...")
+    print("Iniciando proceso de entrenamiento con REINFORCE...")
 
     for episode in range(epochs):
-        print(f"Procesando episodio {episode}")
-        
         observation, info = env.reset()
         graph_data = info["graph_data"]
         done = False
+        
+        # Buffers para REINFORCE
+        episode_log_probs = []
+        episode_rewards = []
         episode_probs = []
         episode_power_constraints = []
         episode_objectives = []
         episode_mu_k = []
 
+        # Recolección de trayectoria
         while not done:
-            action, probs = agent.predict(graph_data)
+            # FIX: Modo entrenamiento para mantener gradientes
+            action_tensor, probs, log_probs = agent.predict(graph_data, training=True)
+            action = action_tensor.detach().cpu().numpy()
             
             next_observation, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
             
-            # Recolección de métricas
-            episode_probs.append(probs)
+            # Almacenar para REINFORCE
+            episode_log_probs.append(log_probs)
+            episode_rewards.append(reward)
+            
+            # Métricas
+            episode_probs.append(probs.detach().cpu().numpy())
             episode_power_constraints.append(info["power_constraint"])
-            episode_objectives.append(-reward)
+            episode_objectives.append(-reward if np.isfinite(reward) else 0.0)
             episode_mu_k.append(info["mu_k"].copy())
             
             graph_data = info["graph_data"]
+
+        # Actualización de política con REINFORCE
+        if len(episode_log_probs) > 0:
+            # Calcular retornos (rewards acumulados)
+            returns = []
+            R = 0
+            for r in reversed(episode_rewards):
+                if np.isfinite(r):
+                    R = r + 0.99 * R  # gamma = 0.99
+                    returns.insert(0, R)
+                else:
+                    returns.insert(0, 0.0)
+            
+            # Normalizar retornos para estabilidad
+            returns = torch.tensor(returns, dtype=torch.float32)
+            if len(returns) > 1 and returns.std() > 1e-8:
+                returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+            
+            # Calcular pérdida de política
+            policy_loss = []
+            for log_prob, R in zip(episode_log_probs, returns):
+                # REINFORCE: -log_prob * return
+                policy_loss.append(-log_prob.sum() * R)
+            
+            if len(policy_loss) > 0:
+                policy_loss = torch.stack(policy_loss).sum()
+                
+                # Backpropagation
+                optimizer.zero_grad()
+                policy_loss.backward()
+                
+                # Gradient clipping para estabilidad
+                torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=1.0)
+                
+                optimizer.step()
+                
+                loss_values.append(policy_loss.item())
 
         # Consolidación de estadísticas del episodio
         if episode % 10 == 0:
@@ -144,15 +243,17 @@ def train_gym(building_id=990, b5g=0, num_links=5, num_channels=3, num_power_lev
             avg_power_constraint = np.mean(episode_power_constraints)
             avg_objective = np.mean(episode_objectives)
             avg_mu_k = np.mean(episode_mu_k, axis=0)
+            avg_loss = np.mean(loss_values[-10:]) if loss_values else 0.0
             
             probs_values.append(avg_probs)
             power_constraint_values.append(avg_power_constraint)
             objective_function_values.append(avg_objective)
             mu_k_values.append(avg_mu_k)
             
-            print(f"Episodio {episode} | "
-                  f"Objetivo: {avg_objective:.4f} | "
-                  f"Restricción: {avg_power_constraint:.4f}")
+            print(f"Episodio {episode:3d} | "
+                  f"Objetivo: {avg_objective:8.4f} | "
+                  f"Restricción: {avg_power_constraint:8.4f} | "
+                  f"Loss: {avg_loss:8.4f}")
 
     # Persistencia de resultados
     print("Finalizando entrenamiento y guardando resultados...")
@@ -180,7 +281,12 @@ def train_gym(building_id=990, b5g=0, num_links=5, num_channels=3, num_power_lev
     # Almacenamiento de artefactos
     metrics_file = path + 'training_metrics.pkl'
     with open(metrics_file, 'wb') as f:
-        pickle.dump(objective_function_values, f)
+        pickle.dump({
+            'objective_function_values': objective_function_values,
+            'power_constraint_values': power_constraint_values,
+            'loss_values': loss_values,
+            'mu_k_values': mu_k_values
+        }, f)
 
     model_path = path + 'trained_gnn_weights.pth'
     torch.save(gnn_model.state_dict(), model_path)

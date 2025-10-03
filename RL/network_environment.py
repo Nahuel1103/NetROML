@@ -92,7 +92,7 @@ class NetworkEnvironment(gym.Env):
         """Configura parámetros físicos del sistema de comunicaciones."""
         self.p0 = 10 ** (self.max_antenna_power_dbm / 10)
         self.pmax_per_ap = 0.8 * self.p0 * torch.ones((self.num_links,))
-        self.power_levels = torch.tensor([self.p0/2, self.p0])
+        self.power_levels = torch.tensor((np.arange(1, self.num_power_levels + 1) / self.num_power_levels) * self.p0)
 
     def _load_dataset(self):
         """Carga dataset de matrices de canal para entrenamiento."""
@@ -199,25 +199,69 @@ class NetworkEnvironment(gym.Env):
         return observation.astype(np.float32)
 
     def _actions_to_phi(self, actions):
-        """Convierte acciones discretas en matriz de asignación de potencia."""
+        """
+        Convierte acciones discretas en matriz de asignación de potencia.
+        
+        Mapeo de acciones:
+        - Acción 0: No transmitir
+        - Acciones 1-6: Combinaciones de (canal, nivel_potencia)
+          - action = 1 + channel_idx * num_power_levels + power_idx
+        """
         actions_tensor = torch.from_numpy(actions).long()
-        phi = torch.zeros(0, self.num_links, self.num_channels)
-        active_mask = (actions_tensor > 0)
-
-        if active_mask.any():
-            actions_active = actions_tensor[active_mask] - 1
-            channel_idx = actions_active // self.num_power_levels
-            power_idx = actions_active % self.num_power_levels
-            phi[:, active_mask, channel_idx] = self.power_levels[power_idx]
+        phi = torch.zeros(1, self.num_links, self.num_channels)
+        
+        # Iterar sobre cada enlace
+        for link_idx in range(self.num_links):
+            action = actions_tensor[link_idx].item()
+            
+            # Acción 0 = no transmitir (phi permanece en 0)
+            if action > 0:
+                action_offset = action - 1  # Convertir a índice base-0
+                
+                # Decodificar: action_offset = channel_idx * num_power_levels + power_idx
+                channel_idx = action_offset // self.num_power_levels
+                power_idx = action_offset % self.num_power_levels
+                
+                # Validación de índices
+                if channel_idx < self.num_channels and power_idx < self.num_power_levels:
+                    phi[0, link_idx, channel_idx] = self.power_levels[power_idx]
+                else:
+                    print(f"WARNING: Índice inválido en link {link_idx}: "
+                          f"action={action}, channel={channel_idx}, power={power_idx}")
         
         return phi
 
     def _calculate_reward(self, phi, power_constr):
-        """Calcula la recompensa basada en métricas de la red."""
+        """
+        Calcula la recompensa basada en métricas de la red.
+        FIX: Manejo robusto de NaN/Inf
+        """
         rates = nuevo_get_rates(phi, self.current_channel_matrix.unsqueeze(0), self.sigma)
+        
+        # Protección contra NaN/Inf
+        if not torch.isfinite(rates).all():
+            print("WARNING: Rates contiene NaN/Inf, usando valor por defecto")
+            return -100.0
+        
         sum_rate = -objective_function(rates)
+        
+        if not torch.isfinite(sum_rate):
+            print("WARNING: sum_rate es NaN/Inf")
+            return -100.0
+        
         penalty = (power_constr * self.mu_k.unsqueeze(0)).sum(dim=1)
+        
+        if not torch.isfinite(penalty).all():
+            print("WARNING: penalty contiene NaN/Inf")
+            penalty = torch.zeros_like(penalty)
+        
         reward = (sum_rate - penalty).mean().item()
+        
+        # Protección final
+        if not np.isfinite(reward):
+            print("WARNING: reward final es NaN/Inf")
+            return -100.0
+        
         return reward
 
     def render(self):
