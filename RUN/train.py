@@ -35,7 +35,7 @@ from utils import nuevo_get_rates
 from utils import graphs_to_tensor_synthetic
 from utils import graphs_to_tensor_sc
 
-def run(building_id=990, b5g=False, num_links=5, num_channels=6, num_layers=5, K=3,
+def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
         batch_size=64, epochs=100, eps=5e-5, mu_lr=5e-4, synthetic=1, rn=100, rn1=100,
          sigma=1e-4,max_antenna_power_dbm=6, sanitycheck=True):   
 
@@ -193,6 +193,8 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=6, num_layers=5, K
             optimizer.step()
 
 
+
+
             if batch_idx%10 == 0:
 
             #------------------------------------------------------------------------
@@ -294,7 +296,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_links', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=3)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--epochs', type=int, default=120)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)

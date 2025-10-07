@@ -100,6 +100,8 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
 # Versión 1
     if (len(normalized_psi_values) > 0):
         normalized_psi_array = np.array(normalized_psi_values) 
+
+        print(normalized_psi_array.shape)
         
         num_nodes = normalized_psi_array.shape[1]
         num_channels = normalized_psi_array.shape[2]
@@ -130,7 +132,7 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
             plt.grid(True)
             plt.ylim(0, 1)  # Probabilidades entre 0 y 1
             
-            image_name = f'node_{node_idx}_channel_probs.png'
+            image_name = f'node_{node_idx}_channel_probs.svg'
             image_path = os.path.join(policy_dir, image_name)  # Guardar en subcarpeta
             plt.savefig(image_path)
             plt.close()

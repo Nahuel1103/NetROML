@@ -2,12 +2,13 @@ import pickle
 import numpy as np
 from networks import build_adhoc_network, build_line_network, build_cellular_network
 
-num_graphs = 64000
+num_graphs = 32000
 num_links = 3
-pl = 1e-5 
+pl = 1e-5
 
 graphs = []
 for _ in range(num_graphs):
+    pl = np.random.rand()
     L = build_line_network(num_links, pl)
     graphs.append(L)
 
