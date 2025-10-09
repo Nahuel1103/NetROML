@@ -124,6 +124,34 @@ def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, buildin
     x_tensor = torch.stack(x_list)
     return x_tensor, channel_matrix_tensor
 
+def load_dataset(building_id, b5g, num_links, batch_size,synthetic):
+    """Carga el dataset de matrices de canal."""
+    print(f"Cargando dataset (building_id={building_id}, synthetic={synthetic})...")
+    
+    if synthetic:
+        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
+            num_links=num_links,
+            num_features=1,
+            b5g=b5g,
+            building_id=building_id
+        )
+        dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+        dataset = dataset[:7000]
+    else:
+        x_tensor, channel_matrix_tensor = graphs_to_tensor(
+            train=True,
+            num_links=num_links,
+            num_features=1,
+            b5g=b5g,
+            building_id=building_id
+        )
+        dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+    
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+
+    print(f"✓ Dataset cargado: {len(dataset)} muestras")
+    return dataloader    
+
 def get_gnn_inputs(x_tensor, channel_matrix_tensor, normalize=True, eps=1e-12):
     """
     Inputs:

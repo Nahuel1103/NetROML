@@ -26,9 +26,9 @@ import scipy.io
 #######################################################
 ### Pytorch Geometric GNN model##
 #######################################################
-class GNN(torch.nn.Module):
+class GNNPolicy(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout, K=1):
-        super(GNN, self).__init__()
+        super(GNNPolicy, self).__init__()
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
         self.dropout = dropout
@@ -58,5 +58,14 @@ class GNN(torch.nn.Module):
             if i < (self.num_layers - 1):
                 x = F.leaky_relu(x, inplace=False)
         return x
+
+    def get_action(self, x, edge_index, edge_attr):
+        logits = self.forward(x, edge_index, edge_attr) # logits: distribucion de probabilidad de las acciones sin normalizar
+        probs = torch.softmax(logits, dim=-1)
+        dist = torch.distributions.Categorical(probs=probs)
+        actions = dist.sample()
+        log_probs = dist.log_prob(actions)
+        log_probs_sum = log_probs.sum(dim=1).unsqueeze(-1)
+        return actions, log_probs_sum
 
 #######################################################

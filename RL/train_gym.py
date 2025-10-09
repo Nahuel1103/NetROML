@@ -1,326 +1,335 @@
 """
-Sistema de Entrenamiento para Políticas de Asignación de Potencia (CORREGIDO)
-Utiliza Redes Neuronales de Grafos y aprendizaje por refuerzo con REINFORCE.
+Sistema de Entrenamiento con PPO + GNN Policy
 """
 
 import torch
-import torch.optim as optim
 import numpy as np
 import argparse
 import pickle
-from network_environment import NetworkEnvironment
-from gnn import GNN
+import os
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.monitor import Monitor
+
+from network_env import NetworkEnvironment
+from gnn_sb3_policy import GNNActorCriticPolicy  # Está en el artifact anterior
 from plot_results_torch import plot_results
+from utils import load_dataset
 
 
-class GNNAgent:
-    """
-    Agente para toma de decisiones en redes inalámbricas.
+class MetricsCallback(BaseCallback):
+    """Callback para recolectar métricas y manejar graph_data."""
     
-    Utiliza una GNN para mapear estados de la red a políticas
-    de asignación de potencia óptimas.
+    def __init__(self, verbose=0):
+        super().__init__(verbose)
+        self.episode_rewards = []
+        self.power_constraints = []
+        self.objectives = []
+        self.mu_k_history = []
+        
+        self._current_power_constraints = []
+        self._current_objectives = []
+        self._current_mu_k = []
+
+    def _on_step(self) -> bool:
+        """Llamado después de cada step del entorno."""
+        infos = self.locals.get('infos', [])
+        
+        for info in infos:
+            # Recolectar métricas
+            if 'power_constraint' in info:
+                self._current_power_constraints.append(info['power_constraint'])
+            if 'sum_rate' in info:
+                self._current_objectives.append(-info['sum_rate'])
+            if 'mu_k' in info:
+                self._current_mu_k.append(info['mu_k'].copy())
+            
+            # CRÍTICO: Inyectar graph_data en la política
+            if 'graph_data' in info:
+                if hasattr(self.model.policy, 'current_graph_data'):
+                    self.model.policy.current_graph_data = info['graph_data']
+        
+        # Detectar fin de episodio
+        dones = self.locals.get('dones', [])
+        if any(dones):
+            if len(self._current_power_constraints) > 0:
+                self.power_constraints.append(np.mean(self._current_power_constraints))
+                self.objectives.append(np.mean(self._current_objectives))
+                self.mu_k_history.append(np.mean(self._current_mu_k, axis=0))
+            
+            # Reset temporales
+            self._current_power_constraints = []
+            self._current_objectives = []
+            self._current_mu_k = []
+        
+        return True
+
+    def _on_rollout_end(self) -> None:
+        """Logging al final de cada rollout."""
+        if self.verbose > 0 and len(self.objectives) > 0:
+            print(f"  Episodios completados: {len(self.objectives)}")
+            print(f"  Objetivo promedio: {self.objectives[-1]:.4f}")
+            print(f"  Restricción promedio: {self.power_constraints[-1]:.4f}")
+
+
+def train_ppo_gnn(building_id=990, b5g=0, num_links=5, num_channels=3, 
+                  num_power_levels=2, num_layers=5, K=3, batch_size=64, 
+                  epochs=100, eps=5e-4, mu_lr=1e-4, synthetic=0, 
+                  max_antenna_power_dbm=6, sigma=1e-4,
+                  # Parámetros PPO
+                  total_timesteps=100000, learning_rate=3e-4,
+                  n_steps=2048, batch_size_ppo=64, n_epochs_ppo=10,
+                  gamma=0.99, gae_lambda=0.95, clip_range=0.2):
     """
-
-    def __init__(self, gnn_model, num_links, num_actions):
-        self.gnn_model = gnn_model
-        self.num_links = num_links
-        self.num_actions = num_actions
-        
-    def predict(self, graph_data, training=False):
-        """
-        Genera decisiones de asignación de potencia basadas en el estado actual.
-        
-        Args:
-            graph_data: Datos del grafo de entrada
-            training: Si True, mantiene el grafo computacional para backprop
-        
-        Returns:
-            actions: Vector de decisiones discretas por enlace
-            action_probs: Distribución de probabilidad de las decisiones
-            log_probs: Log-probabilidades para REINFORCE (solo si training=True)
-        """
-        if training:
-            # Modo entrenamiento: mantener gradientes
-            psi = self.gnn_model.forward(graph_data.x, graph_data.edge_index, graph_data.edge_attr)
-            
-            # DEBUG: Verificar dimensiones
-            batch_size = graph_data.x.size(0) // self.num_links
-            
-            # Reshape: [batch_size * num_links, output_dim] -> [batch_size, num_links, num_actions]
-            psi = psi.view(batch_size, self.num_links, self.num_actions)
-            
-            # Tomar solo el primer elemento del batch
-            psi = psi[0:1]  # Shape: [1, num_links, num_actions]
-            
-            probs = torch.softmax(psi, dim=-1)
-            
-            # Estabilización numérica
-            probs = torch.clamp(probs, min=1e-8, max=1.0)
-            probs = probs / probs.sum(dim=-1, keepdim=True)
-            
-            # Verificar que probs tenga la forma correcta
-            assert probs.shape == (1, self.num_links, self.num_actions), \
-                f"Shape incorrecto: {probs.shape}, esperado (1, {self.num_links}, {self.num_actions})"
-            
-            dist = torch.distributions.Categorical(probs=probs)
-            actions = dist.sample().squeeze(0)
-            log_probs = dist.log_prob(actions)
-            
-            # Validar que las acciones estén en el rango correcto
-            assert torch.all(actions >= 0) and torch.all(actions < self.num_actions), \
-                f"Acciones fuera de rango: {actions}, min={actions.min()}, max={actions.max()}"
-            
-            return actions, probs.squeeze(0), log_probs
-        else:
-            # Modo inferencia: sin gradientes
-            with torch.no_grad():
-                psi = self.gnn_model.forward(graph_data.x, graph_data.edge_index, graph_data.edge_attr)
-                
-                batch_size = graph_data.x.size(0) // self.num_links
-                psi = psi.view(batch_size, self.num_links, self.num_actions)
-                psi = psi[0:1]
-                
-                probs = torch.softmax(psi, dim=-1)
-                probs = torch.clamp(probs, min=1e-8, max=1.0)
-                probs = probs / probs.sum(dim=-1, keepdim=True)
-                
-                dist = torch.distributions.Categorical(probs=probs)
-                actions = dist.sample().squeeze(0)
-                
-            return actions.numpy(), probs.squeeze(0).cpu().numpy(), None
-
-
-def train_gym(building_id=990, b5g=0, num_links=5, num_channels=3, num_power_levels=2, 
-              num_layers=5, K=3, batch_size=64, epochs=100, eps=5e-4, mu_lr=1e-4, 
-              synthetic=0, max_antenna_power_dbm=6, sigma=1e-4):
-    """
-    Loop principal de entrenamiento para políticas de asignación de potencia.
-    
-    Combina optimización Lagrangiana con REINFORCE para entrenar redes neuronales 
-    en problemas con restricciones.
+    Entrenamiento usando PPO de Stable-Baselines3 con GNN Policy.
     """
     
-    # Configuración de reproducibilidad
+    # Reproducibilidad
     rn = 267309
     rn1 = 502321
     torch.manual_seed(rn)
     np.random.seed(rn1)
     
-    print("Inicializando entorno de red Wi-Fi...")
+    print("=" * 70)
+    print("ENTRENAMIENTO PPO + GNN POLICY")
+    print("=" * 70)
     
+    # ==========================================
+    # 1. CARGAR DATASET
+    # ==========================================
+    dataset = load_dataset(building_id, b5g, num_links, synthetic)
+    
+    # ==========================================
+    # 2. CREAR ENTORNO
+    # ==========================================
+    print("\nCreando entorno Gymnasium...")
     env = NetworkEnvironment(
-        building_id=building_id,
-        b5g=b5g,
+        dataset=dataset,
         num_links=num_links,
         num_channels=num_channels,
         num_power_levels=num_power_levels,
-        num_layers=num_layers,
-        K=K,
-        batch_size=batch_size,
-        epochs=epochs,
+        max_steps=len(dataset),
         eps=eps,
-        mu_lr=mu_lr,
-        synthetic=synthetic,
         max_antenna_power_dbm=max_antenna_power_dbm,
         sigma=sigma
     )
     
+    # Wrapper para monitoreo
+    env = Monitor(env)
+    
     num_actions = 1 + num_channels * num_power_levels
     
-    print("Configuración del sistema:")
-    print(f"  Enlaces: {num_links}, Canales: {num_channels}")
-    print(f"  Espacio de acción: {num_actions} decisiones por enlace")
-    print(f"  Observaciones: {env.observation_space.shape}")
-
-    # Inicialización del modelo
-    input_dim = 1
-    hidden_dim = 16  # Aumentado para mejor capacidad
-    output_dim = num_actions
-    dropout = False
+    print("\nConfiguración del entorno:")
+    print(f"  Enlaces: {num_links}")
+    print(f"  Canales: {num_channels}")
+    print(f"  Niveles de potencia: {num_power_levels}")
+    print(f"  Acciones por enlace: {num_actions}")
+    print(f"  Observación shape: {env.observation_space.shape}")
+    print(f"  Acción shape: {env.action_space.shape}")
     
-    gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
+    # ==========================================
+    # 3. CONFIGURAR POLÍTICA GNN
+    # ==========================================
+    print("\nConfigurando GNN Policy...")
     
-    # DEBUG: Verificar la salida de la GNN con datos de prueba
-    print("\n=== DEBUG: Verificando arquitectura GNN ===")
-    observation, info = env.reset()
-    test_graph = info["graph_data"]
-    with torch.no_grad():
-        test_output = gnn_model.forward(test_graph.x, test_graph.edge_index, test_graph.edge_attr)
-        print(f"Input shape: x={test_graph.x.shape}, edge_index={test_graph.edge_index.shape}")
-        print(f"Output shape de GNN: {test_output.shape}")
-        print(f"Esperado: [{batch_size * num_links}, {num_actions}]")
-        print(f"Output_dim configurado: {output_dim}")
-        print(f"Primeros valores de salida: {test_output[:5, :].flatten()[:10]}")
-    print("=" * 50 + "\n")
+    policy_kwargs = {
+        'num_links': num_links,
+        'gnn_hidden_dim': 16,
+        'gnn_num_layers': num_layers,
+        'gnn_K': K,
+        # Configuración de actor-critic (MLP después del GNN)
+        'net_arch': [dict(pi=[64, 64], vf=[64, 64])],
+        'activation_fn': torch.nn.ReLU
+    }
     
-    optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
-
-    agent = GNNAgent(gnn_model, num_links, num_actions)
-
-    # Sistema de métricas
-    objective_function_values = []
-    power_constraint_values = []  
-    loss_values = []
-    mu_k_values = []
-    probs_values = []
-
-    print("Iniciando proceso de entrenamiento con REINFORCE...")
-
-    for episode in range(epochs):
-        observation, info = env.reset()
-        graph_data = info["graph_data"]
-        done = False
-        
-        # Buffers para REINFORCE
-        episode_log_probs = []
-        episode_rewards = []
-        episode_probs = []
-        episode_power_constraints = []
-        episode_objectives = []
-        episode_mu_k = []
-
-        # Recolección de trayectoria
-        while not done:
-            # FIX: Modo entrenamiento para mantener gradientes
-            action_tensor, probs, log_probs = agent.predict(graph_data, training=True)
-            action = action_tensor.detach().cpu().numpy()
-            
-            next_observation, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
-            
-            # Almacenar para REINFORCE
-            episode_log_probs.append(log_probs)
-            episode_rewards.append(reward)
-            
-            # Métricas
-            episode_probs.append(probs.detach().cpu().numpy())
-            episode_power_constraints.append(info["power_constraint"])
-            episode_objectives.append(-reward if np.isfinite(reward) else 0.0)
-            episode_mu_k.append(info["mu_k"].copy())
-            
-            graph_data = info["graph_data"]
-
-        # Actualización de política con REINFORCE
-        if len(episode_log_probs) > 0:
-            # Calcular retornos (rewards acumulados)
-            returns = []
-            R = 0
-            for r in reversed(episode_rewards):
-                if np.isfinite(r):
-                    R = r + 0.99 * R  # gamma = 0.99
-                    returns.insert(0, R)
-                else:
-                    returns.insert(0, 0.0)
-            
-            # Normalizar retornos para estabilidad
-            returns = torch.tensor(returns, dtype=torch.float32)
-            if len(returns) > 1 and returns.std() > 1e-8:
-                returns = (returns - returns.mean()) / (returns.std() + 1e-8)
-            
-            # Calcular pérdida de política
-            policy_loss = []
-            for log_prob, R in zip(episode_log_probs, returns):
-                # REINFORCE: -log_prob * return
-                policy_loss.append(-log_prob.sum() * R)
-            
-            if len(policy_loss) > 0:
-                policy_loss = torch.stack(policy_loss).sum()
-                
-                # Backpropagation
-                optimizer.zero_grad()
-                policy_loss.backward()
-                
-                # Gradient clipping para estabilidad
-                torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=1.0)
-                
-                optimizer.step()
-                
-                loss_values.append(policy_loss.item())
-
-        # Consolidación de estadísticas del episodio
-        if episode % 10 == 0:
-            avg_probs = np.mean(episode_probs, axis=0)
-            avg_power_constraint = np.mean(episode_power_constraints)
-            avg_objective = np.mean(episode_objectives)
-            avg_mu_k = np.mean(episode_mu_k, axis=0)
-            avg_loss = np.mean(loss_values[-10:]) if loss_values else 0.0
-            
-            probs_values.append(avg_probs)
-            power_constraint_values.append(avg_power_constraint)
-            objective_function_values.append(avg_objective)
-            mu_k_values.append(avg_mu_k)
-            
-            print(f"Episodio {episode:3d} | "
-                  f"Objetivo: {avg_objective:8.4f} | "
-                  f"Restricción: {avg_power_constraint:8.4f} | "
-                  f"Loss: {avg_loss:8.4f}")
-
-    # Persistencia de resultados
-    print("Finalizando entrenamiento y guardando resultados...")
+    print("  Arquitectura GNN:")
+    print(f"    - Hidden dim: {policy_kwargs['gnn_hidden_dim']}")
+    print(f"    - Num layers: {policy_kwargs['gnn_num_layers']}")
+    print(f"    - K (hops): {policy_kwargs['gnn_K']}")
+    print(f"    - Features dim: {num_links * policy_kwargs['gnn_hidden_dim']}")
+    print(f"    - Actor/Critic: {policy_kwargs['net_arch']}")
     
-    path = plot_results(
-        building_id=building_id,
-        b5g=b5g,
-        normalized_psi=torch.tensor(probs_values),
-        normalized_psi_values=probs_values,
-        num_layers=num_layers,
-        K=K,
-        batch_size=batch_size,
-        epochs=epochs,
-        rn=rn,
-        rn1=rn1,
-        eps=eps,
-        mu_lr=mu_lr,
-        objective_function_values=objective_function_values,
-        power_constraint_values=power_constraint_values,
-        loss_values=loss_values,
-        mu_k_values=mu_k_values,
-        train=True
+    # ==========================================
+    # 4. CREAR AGENTE PPO
+    # ==========================================
+    print("\nCreando agente PPO...")
+    
+    model = PPO(
+        GNNActorCriticPolicy,  # Tu política personalizada
+        env,
+        learning_rate=learning_rate,
+        n_steps=n_steps,
+        batch_size=batch_size_ppo,
+        n_epochs=n_epochs_ppo,
+        gamma=gamma,
+        gae_lambda=gae_lambda,
+        clip_range=clip_range,
+        policy_kwargs=policy_kwargs,
+        verbose=1,
+        tensorboard_log=f"./tensorboard_logs/ppo_gnn_{building_id}/"
     )
-
-    # Almacenamiento de artefactos
-    metrics_file = path + 'training_metrics.pkl'
-    with open(metrics_file, 'wb') as f:
-        pickle.dump({
-            'objective_function_values': objective_function_values,
-            'power_constraint_values': power_constraint_values,
-            'loss_values': loss_values,
-            'mu_k_values': mu_k_values
-        }, f)
-
-    model_path = path + 'trained_gnn_weights.pth'
-    torch.save(gnn_model.state_dict(), model_path)
-
-    print(f"Modelo y métricas guardados en: {path}")
-    return path
+    
+    print("\nConfiguración PPO:")
+    print(f"  Learning rate: {learning_rate}")
+    print(f"  Steps por rollout: {n_steps}")
+    print(f"  Batch size: {batch_size_ppo}")
+    print(f"  Epochs por update: {n_epochs_ppo}")
+    print(f"  Gamma: {gamma}")
+    print(f"  GAE Lambda: {gae_lambda}")
+    print(f"  Clip range: {clip_range}")
+    
+    # ==========================================
+    # 5. CALLBACK PARA MÉTRICAS
+    # ==========================================
+    metrics_callback = MetricsCallback(verbose=1)
+    
+    # ==========================================
+    # 6. ENTRENAMIENTO
+    # ==========================================
+    print("\n" + "=" * 70)
+    print(f"INICIANDO ENTRENAMIENTO - {total_timesteps} timesteps")
+    print("=" * 70)
+    
+    model.learn(
+        total_timesteps=total_timesteps,
+        callback=metrics_callback,
+        progress_bar=True
+    )
+    
+    print("\n" + "=" * 70)
+    print("ENTRENAMIENTO FINALIZADO")
+    print("=" * 70)
+    
+    # ==========================================
+    # 7. GUARDAR RESULTADOS
+    # ==========================================
+    print("\nGuardando resultados...")
+    
+    # Crear directorio de resultados
+    results_dir = f"./results/ppo_gnn_building_{building_id}_b5g_{b5g}/"
+    os.makedirs(results_dir, exist_ok=True)
+    
+    # Guardar modelo de SB3
+    model_path = os.path.join(results_dir, "ppo_model.zip")
+    model.save(model_path)
+    print(f"✓ Modelo PPO guardado en: {model_path}")
+    
+    # Guardar pesos de la GNN por separado (opcional, útil para análisis)
+    gnn_weights_path = os.path.join(results_dir, "gnn_weights.pth")
+    torch.save(model.policy.features_extractor.state_dict(), gnn_weights_path)
+    print(f"✓ Pesos GNN guardados en: {gnn_weights_path}")
+    
+    # Guardar métricas
+    metrics = {
+        'objectives': metrics_callback.objectives,
+        'power_constraints': metrics_callback.power_constraints,
+        'mu_k_history': metrics_callback.mu_k_history
+    }
+    
+    metrics_path = os.path.join(results_dir, "training_metrics.pkl")
+    with open(metrics_path, 'wb') as f:
+        pickle.dump(metrics, f)
+    print(f"✓ Métricas guardadas en: {metrics_path}")
+    
+    # Graficar resultados
+    try:
+        plot_results(
+            building_id=building_id,
+            b5g=b5g,
+            normalized_psi=None,
+            normalized_psi_values=None,
+            num_layers=num_layers,
+            K=K,
+            batch_size=batch_size,
+            epochs=len(metrics_callback.objectives),
+            rn=rn,
+            rn1=rn1,
+            eps=eps,
+            mu_lr=learning_rate,
+            objective_function_values=metrics_callback.objectives,
+            power_constraint_values=metrics_callback.power_constraints,
+            loss_values=[],
+            mu_k_values=metrics_callback.mu_k_history,
+            train=True
+        )
+        print(f"✓ Gráficos guardados en: {results_dir}")
+    except Exception as e:
+        print(f"⚠ No se pudieron generar gráficos: {e}")
+    
+    # ==========================================
+    # 8. EVALUACIÓN FINAL
+    # ==========================================
+    print("\n" + "=" * 70)
+    print("EVALUACIÓN FINAL (100 steps)")
+    print("=" * 70)
+    
+    obs, info = env.reset()
+    total_reward = 0
+    eval_objectives = []
+    eval_power_constraints = []
+    
+    for step in range(100):
+        # Inyectar graph_data antes de predecir
+        if 'graph_data' in info:
+            model.policy.current_graph_data = info['graph_data']
+        
+        action, _states = model.predict(obs, deterministic=True)
+        obs, reward, done, truncated, info = env.step(action)
+        
+        total_reward += reward
+        if 'sum_rate' in info:
+            eval_objectives.append(-info['sum_rate'])
+        if 'power_constraint' in info:
+            eval_power_constraints.append(info['power_constraint'])
+        
+        if done or truncated:
+            obs, info = env.reset()
+    
+    print(f"\nResultados de evaluación:")
+    print(f"  Reward promedio: {total_reward / 100:.4f}")
+    print(f"  Objetivo promedio: {np.mean(eval_objectives):.4f}")
+    print(f"  Restricción promedio: {np.mean(eval_power_constraints):.4f}")
+    
+    return results_dir, model
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description='Entrenamiento de políticas para redes inalámbricas'
+        description='Entrenamiento PPO + GNN para redes inalámbricas'
     )
     
+    # Parámetros del entorno
     parser.add_argument('--building_id', type=int, default=990)
     parser.add_argument('--b5g', type=int, default=0)
     parser.add_argument('--num_links', type=int, default=5)
     parser.add_argument('--num_channels', type=int, default=3)
     parser.add_argument('--num_power_levels', type=int, default=2)
-    parser.add_argument('--num_layers', type=int, default=5)
-    parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=150)
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--eps', type=float, default=5e-4)
-    parser.add_argument('--mu_lr', type=float, default=5e-4)
     parser.add_argument('--synthetic', type=int, default=0)
     parser.add_argument('--max_antenna_power_dbm', type=int, default=6)
     
+    # Parámetros de la GNN
+    parser.add_argument('--num_layers', type=int, default=5)
+    parser.add_argument('--k', type=int, default=3)
+    parser.add_argument('--eps', type=float, default=5e-4)
+    
+    # Parámetros de PPO
+    parser.add_argument('--total_timesteps', type=int, default=100000)
+    parser.add_argument('--learning_rate', type=float, default=3e-4)
+    parser.add_argument('--n_steps', type=int, default=2048)
+    parser.add_argument('--batch_size_ppo', type=int, default=64)
+    parser.add_argument('--n_epochs_ppo', type=int, default=10)
+    parser.add_argument('--gamma', type=float, default=0.99)
+    
     args = parser.parse_args()
     
-    print("Configuración de entrenamiento:")
+    print("\n" + "=" * 70)
+    print("CONFIGURACIÓN DE ENTRENAMIENTO")
+    print("=" * 70)
     for arg, value in vars(args).items():
-        print(f"  {arg}: {value}")
+        print(f"  {arg:25s}: {value}")
+    print("=" * 70 + "\n")
     
-    train_gym(
+    results_dir, model = train_ppo_gnn(
         building_id=args.building_id,
         b5g=args.b5g,
         num_links=args.num_links,
@@ -328,10 +337,15 @@ if __name__ == '__main__':
         num_power_levels=args.num_power_levels,
         num_layers=args.num_layers,
         K=args.k,
-        batch_size=args.batch_size,
-        epochs=args.epochs,
         eps=args.eps,
-        mu_lr=args.mu_lr,
         synthetic=args.synthetic,
-        max_antenna_power_dbm=args.max_antenna_power_dbm
+        max_antenna_power_dbm=args.max_antenna_power_dbm,
+        total_timesteps=args.total_timesteps,
+        learning_rate=args.learning_rate,
+        n_steps=args.n_steps,
+        batch_size_ppo=args.batch_size_ppo,
+        n_epochs_ppo=args.n_epochs_ppo,
+        gamma=args.gamma
     )
+    
+    print(f"\n✓ COMPLETADO - Resultados en: {results_dir}")
