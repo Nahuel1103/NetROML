@@ -90,7 +90,8 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
 
     #------------------------------------------------------------------------
-    
+    # En train.py:
+    input_dim = num_links +1 # Era 1, ahora 3 (o el número de links)
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
     optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
 
@@ -101,6 +102,49 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     probs_values = []
     power_values = []  
 
+
+
+# TEST: Ver si los pesos cambian
+    print("\n=== TEST DE ACTUALIZACIÓN DE PESOS ===")
+    initial_weights = {name: param.clone() for name, param in gnn_model.named_parameters()}
+    
+    # Hacer UN paso de optimización manual
+    sample_data = next(iter(dataloader))
+    channel_matrix_batch = sample_data.matrix.view(batch_size, num_links, num_links)
+    
+    psi = gnn_model.forward(sample_data.x, sample_data.edge_index, sample_data.edge_attr)
+    psi = psi.view(batch_size, num_links, num_channels+1)
+    probs = torch.softmax(psi, dim=-1)
+    dist = torch.distributions.Categorical(probs=probs)
+    actions = dist.sample()
+    log_p = dist.log_prob(actions).sum(dim=1).unsqueeze(-1)
+    
+    phi = torch.zeros(batch_size, num_links, num_channels)
+    active_mask = (actions > 0)
+    active_channels = actions[active_mask] - 1
+    phi[active_mask, active_channels] = max_antenna_power_mw
+    
+    rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=max_antenna_power_mw)
+    sum_rate = -objective_function(rates).unsqueeze(-1)
+    loss = (sum_rate * log_p).mean()
+    
+    optimizer.zero_grad()
+    loss.backward()
+    
+    print(f"Loss: {loss.item():.6f}")
+    for name, param in gnn_model.named_parameters():
+        if param.grad is not None:
+            print(f"{name}: grad_norm={param.grad.norm().item():.8f}")
+    
+    torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=1.0)
+    optimizer.step()
+    
+    # Verificar si cambiaron
+    print("\nCambios en pesos después de 1 step:")
+    for name, param in gnn_model.named_parameters():
+        diff = (param - initial_weights[name]).abs().max().item()
+        print(f"{name}: max_change={diff:.10f}")
+    print("=" * 50 + "\n")
 
     for epoc in range(epochs):
         print("Epoch number: {}".format(epoc))
@@ -190,11 +234,23 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             loss_mean = loss.mean()
             optimizer.zero_grad()
             loss_mean.backward()
+            torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=5.0)  
             optimizer.step()
 
-
-
-
+            # if batch_idx % 10 == 0:
+            #     with torch.no_grad():
+            #         # Ortogonal
+            #         phi_ortho = torch.zeros_like(phi)
+            #         phi_ortho[:, 0, 0] = max_antenna_power_mw
+            #         phi_ortho[:, 1, 1] = max_antenna_power_mw
+            #         phi_ortho[:, 2, 2] = max_antenna_power_mw
+                    
+            #         rates_ortho = nuevo_get_rates(phi_ortho, channel_matrix_batch, sigma, p0=max_antenna_power_mw)
+            #         sum_rate_ortho = objective_function(rates_ortho).mean()  # SIN menos (rate crudo)
+                    
+            #         sum_rate_actual = objective_function(rates).mean()  # SIN menos (rate crudo)
+                    
+            #         print(f"Batch {batch_idx}: Rate ortho={sum_rate_ortho:.4f}, Rate actual={sum_rate_actual:.4f}, Diff={sum_rate_ortho - sum_rate_actual:.4f}")
             if batch_idx%10 == 0:
 
             #------------------------------------------------------------------------
@@ -247,6 +303,9 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             train=True
         )
 
+
+        
+
 # Versión 2
 
     # path = plot_results(
@@ -296,10 +355,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_links', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=3)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=120)
+    parser.add_argument('--epochs', type=int, default=40)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--eps', type=float, default=5e-4)
-    parser.add_argument('--mu_lr', type=float, default=5e-4)
+    parser.add_argument('--eps', type=float, default=5e-5)
+    parser.add_argument('--mu_lr', type=float, default=5e-3)
     parser.add_argument('--synthetic', type=int, default=1)
     
     args = parser.parse_args()

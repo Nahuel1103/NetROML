@@ -5,218 +5,371 @@ import torch
 
 
 def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], power_values=[], 
-                num_layers=5, K=3, batch_size=64, epochs = 100, rn=100, rn1=100, eps=5e-5, 
+                num_layers=5, K=3, batch_size=64, epochs=100, rn=100, rn1=100, eps=5e-5, 
                 mu_lr=1e-4, objective_function_values=[], power_constraint_values=[], 
-                loss_values=[], mu_k_values=[], baseline=0, mark=0, train=True, num_channels = None,
-            num_power_levels = None, power_levels = None):
-
+                loss_values=[], mu_k_values=[], baseline=0, mark=0, train=True, num_channels=None,
+                num_power_levels=None, power_levels=None):
     """
-    Function that receives the values for different parameters resulting from some training
-    of the system as lists and plots them. The corresponding plots are saved in the corresponding
-    path, taking into consideration the building_id and the frequency band (2_4, 5) the network
-    is using.
+    Function that plots training results with correct interpretation of probabilities per link.
+    
+    Args:
+        normalized_psi_values: List of arrays with shape [num_links, num_actions]
+                              where num_actions = num_channels + 1 (including "no TX")
     """
 
     band = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
-    mu_lr_str= str(f"{mu_lr:.0e}")
+    mu_lr_str = str(f"{mu_lr:.0e}")
     batch_size_str = str(batch_size)
 
+    # Create path
     if train:
         if mark:
-            path = '/Users/nahuelpineyro/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/mark_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1)
+            path = f'/Users/nahuelpineyro/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/mark_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}'
         else:
-            path = '/Users/nahuelpineyro/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_train_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1)
-
-        if (baseline==0):
+            path = f'/Users/nahuelpineyro/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/ceibal_train_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}'
+        
+        if baseline == 0:
             path = path + '/'
         else:
             path = path + '_baseline' + str(baseline) + '/'
     else:
-        path = '/Users/nahuelpineyro/NetROML/results/' + str(band[b5g]) + '_' + str(building_id) + '/torch_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epochs) + '_' + str(rn) + '_' + str(rn1) + '/'
-
+        path = f'/Users/nahuelpineyro/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/ceibal_val_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}/'
 
     if not os.path.exists(path):
         os.makedirs(path)
 
+    # =========================================================================
+    # TRAINING METRICS PLOTS
+    # =========================================================================
+    
     if len(objective_function_values) > 0:
-
-        plt.figure(figsize=(16,9))
-        plt.title('Funcion Objetivo')
-        plt.xlabel('Iteraciones (x10)')
-        plt.ylabel('Capacidad')
-        plt.plot(objective_function_values)
-        plt.grid()
-        image_name = 'objective_function'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-        image_path = os.path.join(path, image_name)
-        plt.savefig(image_path)
+        plt.figure(figsize=(16, 9))
+        plt.title('Función Objetivo (Sum Rate)', fontsize=16, fontweight='bold')
+        plt.xlabel('Iteraciones (x10)', fontsize=14)
+        plt.ylabel('Sum Rate', fontsize=14)
+        plt.plot(objective_function_values, linewidth=2, color='blue')
+        plt.grid(alpha=0.3)
+        image_name = f'objective_function_{eps_str}_{mu_lr_str}_{batch_size_str}.png'
+        plt.savefig(os.path.join(path, image_name), dpi=150, bbox_inches='tight')
         plt.close()
 
-
-        if len(power_constraint_values) > 0:
-
-            plt.figure(figsize=(16,9))
-            plt.title('Restriccion de potencia')
-            plt.xlabel('Iteraciones (x10)')
-            plt.ylabel('Potencia')
-            plt.plot(power_constraint_values)
-            plt.ylim(-2, 1)  # ← AÑADIR ESTA LÍNEA
-            plt.grid()
-            image_name = f'power constraint'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-            image_path = os.path.join(path, image_name)
-            plt.savefig(image_path)
-            plt.close()
-
+    if len(power_constraint_values) > 0:
+        plt.figure(figsize=(16, 9))
+        plt.title('Restricción de Potencia', fontsize=16, fontweight='bold')
+        plt.xlabel('Iteraciones (x10)', fontsize=14)
+        plt.ylabel('Violación de Restricción', fontsize=14)
+        plt.plot(power_constraint_values, linewidth=2, color='red')
+        plt.axhline(y=0, color='black', linestyle='--', linewidth=2, alpha=0.5, label='Objetivo (≤0)')
+        plt.ylim(-2, 1)
+        plt.legend(fontsize=12)
+        plt.grid(alpha=0.3)
+        image_name = f'power_constraint_{eps_str}_{mu_lr_str}_{batch_size_str}.png'
+        plt.savefig(os.path.join(path, image_name), dpi=150, bbox_inches='tight')
+        plt.close()
 
     if len(loss_values) > 0:
-
-        plt.figure(figsize=(16,9))
-        plt.title('Loss')
-        plt.xlabel('Iteraciones (x10)')
-        plt.ylabel('Loss')
-        plt.plot(loss_values)
-        plt.grid()
-        image_name = f'loss'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-        image_path = os.path.join(path, image_name)
-        plt.savefig(image_path)
+        plt.figure(figsize=(16, 9))
+        plt.title('Loss', fontsize=16, fontweight='bold')
+        plt.xlabel('Iteraciones (x10)', fontsize=14)
+        plt.ylabel('Loss', fontsize=14)
+        plt.plot(loss_values, linewidth=2, color='green')
+        plt.grid(alpha=0.3)
+        image_name = f'loss_{eps_str}_{mu_lr_str}_{batch_size_str}.png'
+        plt.savefig(os.path.join(path, image_name), dpi=150, bbox_inches='tight')
         plt.close()
-
 
     if len(mu_k_values) > 0:
-
-        plt.figure(figsize=(16,9))
-        plt.title('mu_k')
-        plt.xlabel('Iteraciones (x10)')
-        plt.ylabel('mu_k')
-        plt.plot(mu_k_values)
-        plt.grid()
-        image_name = f'mu_k'+ '_' + eps_str + '_' + mu_lr_str + '_' + batch_size_str + '.png'
-        image_path = os.path.join(path, image_name)
-        plt.savefig(image_path)
+        plt.figure(figsize=(16, 9))
+        plt.title('Multiplicadores de Lagrange (μ_k)', fontsize=16, fontweight='bold')
+        plt.xlabel('Iteraciones (x10)', fontsize=14)
+        plt.ylabel('μ_k', fontsize=14)
+        
+        mu_k_array = np.array(mu_k_values)
+        if mu_k_array.ndim == 1:
+            plt.plot(mu_k_array, linewidth=2, label='Todos los links')
+        else:
+            for link_idx in range(mu_k_array.shape[1]):
+                plt.plot(mu_k_array[:, link_idx], linewidth=2, label=f'Link {link_idx}')
+        
+        plt.legend(fontsize=12)
+        plt.grid(alpha=0.3)
+        image_name = f'mu_k_{eps_str}_{mu_lr_str}_{batch_size_str}.png'
+        plt.savefig(os.path.join(path, image_name), dpi=150, bbox_inches='tight')
         plt.close()
 
-
-
-# Versión 1
-    if (len(normalized_psi_values) > 0):
-        normalized_psi_array = np.array(normalized_psi_values) 
-
-        print(normalized_psi_array.shape)
+    # =========================================================================
+    # POLICY ANALYSIS (CORRECTED)
+    # =========================================================================
+    
+    if len(normalized_psi_values) > 0:
+        normalized_psi_array = np.array(normalized_psi_values)  # [iterations, num_links, num_actions]
         
-        num_nodes = normalized_psi_array.shape[1]
-        num_channels = normalized_psi_array.shape[2]
+        num_links = normalized_psi_array.shape[1]
+        num_actions = normalized_psi_array.shape[2]
+        num_channels_actual = num_actions - 1  # Restamos "no TX"
         
-        # Crear carpeta para políticas por nodo
-        policy_dir = os.path.join(path, 'policy_per_node')
+        print(f"\nShape de probabilidades: {normalized_psi_array.shape}")
+        print(f"  - Iteraciones guardadas: {normalized_psi_array.shape[0]}")
+        print(f"  - Número de links: {num_links}")
+        print(f"  - Número de acciones: {num_actions} (1 no TX + {num_channels_actual} canales)")
+        
+        # Crear carpeta para políticas por link
+        policy_dir = os.path.join(path, 'policy_per_link')
         if not os.path.exists(policy_dir):
             os.makedirs(policy_dir)
         
-        # Plot para cada nodo: todos sus canales
-        for node_idx in range(num_nodes):
-            plt.figure(figsize=(16, 12))
-            plt.title(f'Probabilidades de Canales - Nodo {node_idx}')
-            plt.xlabel('Iteraciones (x10)')
-            plt.ylabel('Probabilidad')
+        # =====================================================================
+        # PLOT 1: Evolución de política por link (individual)
+        # =====================================================================
+        
+        for link_idx in range(num_links):
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 14))
             
-            # Plotear cada canal del nodo
-            for channel_idx in range(num_channels):
-                if channel_idx == 0:
-                    label = f'No TX'
+            # Subplot 1: Todas las acciones
+            ax1.set_title(f'Link {link_idx}: Evolución de Probabilidades de Acción', 
+                         fontsize=14, fontweight='bold')
+            ax1.set_xlabel('Iteraciones (x10)', fontsize=12)
+            ax1.set_ylabel('Probabilidad', fontsize=12)
+            
+            # Plotear cada acción
+            for action_idx in range(num_actions):
+                if action_idx == 0:
+                    label = 'No TX'
+                    color = 'black'
+                    linestyle = '--'
+                    linewidth = 2.5
                 else:
-                    label = f'Canal {channel_idx-1}'
+                    channel = action_idx - 1
+                    label = f'Canal {channel}'
+                    color = f'C{channel}'
+                    linestyle = '-'
+                    linewidth = 2
                 
-                plt.plot(normalized_psi_array[:, node_idx, channel_idx], 
-                        label=label, linewidth=2)
+                ax1.plot(normalized_psi_array[:, link_idx, action_idx], 
+                        label=label, color=color, linestyle=linestyle, linewidth=linewidth)
             
-            plt.legend()
-            plt.grid(True)
-            plt.ylim(0, 1)  # Probabilidades entre 0 y 1
+            ax1.legend(fontsize=11, loc='best')
+            ax1.grid(True, alpha=0.3)
+            ax1.set_ylim(-0.05, 1.05)
             
-            image_name = f'node_{node_idx}_channel_probs.svg'
-            image_path = os.path.join(policy_dir, image_name)  # Guardar en subcarpeta
-            plt.savefig(image_path)
+            # Subplot 2: Solo canales de transmisión (sin "No TX")
+            ax2.set_title(f'Link {link_idx}: Solo Canales de Transmisión', 
+                         fontsize=14, fontweight='bold')
+            ax2.set_xlabel('Iteraciones (x10)', fontsize=12)
+            ax2.set_ylabel('Probabilidad', fontsize=12)
+            
+            for channel in range(num_channels_actual):
+                action_idx = channel + 1
+                ax2.plot(normalized_psi_array[:, link_idx, action_idx], 
+                        label=f'Canal {channel}', 
+                        color=f'C{channel}', 
+                        linewidth=2.5,
+                        marker='o' if normalized_psi_array.shape[0] < 50 else None,
+                        markersize=4)
+            
+            ax2.legend(fontsize=11, loc='best')
+            ax2.grid(True, alpha=0.3)
+            ax2.set_ylim(-0.05, 1.05)
+            
+            plt.tight_layout()
+            image_name = f'link_{link_idx}_policy_evolution.png'
+            plt.savefig(os.path.join(policy_dir, image_name), dpi=150, bbox_inches='tight')
             plt.close()
         
-        final_probs = normalized_psi_array[-1]  # Última iteración           
-    print(f"Probabilidades finales por nodo (solo canales):")
-    for node_idx in range(num_nodes):
-        # Solo canales de transmisión (ignorar el primer elemento "No TX")
-        channel_probs = final_probs[node_idx, 1:] if len(final_probs.shape) > 1 else final_probs[1:]
-        best_channel = np.argmax(channel_probs)
-        best_prob = channel_probs[best_channel]
-        print(f"  Nodo {node_idx}: Canal {best_channel} ({best_prob:.3f})")
-
-
-# Versión 2
-    # if (len(normalized_psi_values) > 0):
-    #     normalized_psi_array = np.array(normalized_psi_values)  # [iterations, num_links, num_actions]
+        # =====================================================================
+        # PLOT 2: Todas las políticas juntas (overview)
+        # =====================================================================
         
-    #     num_nodes = normalized_psi_array.shape[1]
-    #     num_actions = normalized_psi_array.shape[2]
+        fig, axes = plt.subplots(num_links, 1, figsize=(16, 5*num_links))
+        if num_links == 1:
+            axes = [axes]
         
-    #     # Usar las variables conocidas
-    #     num_channels = num_channels
-    #     num_power_levels = num_power_levels
-        
-    #     # Verificar consistencia
-    #     expected_actions = 1 + num_channels * num_power_levels
-    #     if num_actions != expected_actions:
-    #         print(f"Advertencia: Número de acciones ({num_actions}) no coincide con esperado ({expected_actions})")
-        
-    #     # Crear carpeta para políticas por nodo
-    #     policy_dir = os.path.join(path, 'policy_per_node')
-    #     if not os.path.exists(policy_dir):
-    #         os.makedirs(policy_dir)
-        
-    #     # Plot para cada nodo: todas las acciones en un solo gráfico
-    #     for node_idx in range(num_nodes):
-    #         plt.figure(figsize=(14, 8))
+        for link_idx in range(num_links):
+            ax = axes[link_idx]
             
-    #         plt.title(f'Política de Transmisión - Nodo {node_idx}')
-    #         plt.xlabel('Iteraciones (x10)')
-    #         plt.ylabel('Probabilidad')
-    #         plt.ylim(0, 1)
-    #         plt.grid(True)
+            for action_idx in range(num_actions):
+                if action_idx == 0:
+                    label = 'No TX'
+                    color = 'black'
+                    linestyle = '--'
+                    linewidth = 2
+                else:
+                    channel = action_idx - 1
+                    label = f'Canal {channel}'
+                    color = f'C{channel}'
+                    linestyle = '-'
+                    linewidth = 2
+                
+                ax.plot(normalized_psi_array[:, link_idx, action_idx], 
+                       label=label, color=color, linestyle=linestyle, linewidth=linewidth)
             
-    #         # Plotear cada acción
-    #         for action_idx in range(num_actions):
-    #             if action_idx == 0:
-    #                 # Acción "No TX"
-    #                 label = 'No TX (0 mW)'
-    #                 color = 'red'
-    #                 linewidth = 3
-    #                 linestyle = '-'
-    #             else:
-    #                 # Calcular canal y nivel de potencia para esta acción
-    #                 action_offset = action_idx - 1
-    #                 channel_idx = action_offset % num_channels
-    #                 power_level_idx = action_offset // num_channels
+            ax.set_title(f'Link {link_idx}', fontsize=13, fontweight='bold')
+            ax.set_xlabel('Iteraciones (x10)', fontsize=11)
+            ax.set_ylabel('Probabilidad', fontsize=11)
+            ax.legend(fontsize=10, loc='best')
+            ax.grid(True, alpha=0.3)
+            ax.set_ylim(-0.05, 1.05)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(path, 'all_links_policies.png'), dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # =====================================================================
+        # PLOT 3: Heatmap de probabilidades finales
+        # =====================================================================
+        
+        final_probs = normalized_psi_array[-1]  # [num_links, num_actions]
+        
+        fig, ax = plt.subplots(figsize=(12, max(6, num_links*1.5)))
+        
+        im = ax.imshow(final_probs, cmap='YlOrRd', aspect='auto', vmin=0, vmax=1)
+        
+        # Etiquetas
+        action_labels = ['No TX'] + [f'Ch {i}' for i in range(num_channels_actual)]
+        ax.set_xticks(np.arange(num_actions))
+        ax.set_yticks(np.arange(num_links))
+        ax.set_xticklabels(action_labels, fontsize=11)
+        ax.set_yticklabels([f'Link {i}' for i in range(num_links)], fontsize=11)
+        
+        # Añadir valores en cada celda
+        for i in range(num_links):
+            for j in range(num_actions):
+                text_color = 'white' if final_probs[i, j] > 0.5 else 'black'
+                ax.text(j, i, f'{final_probs[i, j]:.3f}',
+                       ha="center", va="center", 
+                       color=text_color,
+                       fontsize=10, fontweight='bold')
+        
+        ax.set_xlabel('Acción', fontsize=13, fontweight='bold')
+        ax.set_ylabel('Link', fontsize=13, fontweight='bold')
+        ax.set_title('Probabilidades Finales de Acción (Última Iteración)', 
+                    fontsize=15, fontweight='bold')
+        
+        plt.colorbar(im, ax=ax, label='Probabilidad')
+        plt.tight_layout()
+        plt.savefig(os.path.join(path, 'final_probabilities_heatmap.png'), 
+                   dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # =====================================================================
+        # PLOT 4: Convergencia de acciones
+        # =====================================================================
+        
+        fig, ax = plt.subplots(figsize=(16, 8))
+        
+        iterations = np.arange(len(normalized_psi_array))
+        
+        for link_idx in range(num_links):
+            # Calcular acción más probable en cada iteración
+            most_likely_actions = np.argmax(normalized_psi_array[:, link_idx, :], axis=1)
+            
+            ax.plot(iterations, most_likely_actions,
+                   label=f'Link {link_idx}',
+                   linewidth=2.5,
+                   marker='o',
+                   markersize=5)
+        
+        ax.set_xlabel('Iteraciones (x10)', fontsize=13)
+        ax.set_ylabel('Acción Más Probable', fontsize=13)
+        ax.set_yticks(range(num_actions))
+        ax.set_yticklabels(['No TX'] + [f'Ch {i}' for i in range(num_channels_actual)])
+        ax.set_title('Convergencia: Acción Preferida por Link', 
+                    fontsize=15, fontweight='bold')
+        ax.legend(fontsize=12, loc='best')
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(path, 'action_convergence.png'), 
+                   dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # =====================================================================
+        # ANÁLISIS FINAL (en consola y archivo de texto)
+        # =====================================================================
+        
+        analysis_file = os.path.join(path, 'policy_analysis.txt')
+        with open(analysis_file, 'w') as f:
+            f.write("="*70 + "\n")
+            f.write("ANÁLISIS DE POLÍTICA FINAL\n")
+            f.write("="*70 + "\n\n")
+            
+            print("\n" + "="*70)
+            print("ANÁLISIS DE POLÍTICA FINAL")
+            print("="*70)
+            
+            for link_idx in range(num_links):
+                probs = final_probs[link_idx, :]
+                best_action = np.argmax(probs)
+                
+                if best_action == 0:
+                    action_name = "No TX"
+                else:
+                    action_name = f"Canal {best_action - 1}"
+                
+                # Escribir en archivo
+                f.write(f"\nLink {link_idx}:\n")
+                f.write(f"  Acción preferida: {action_name} (p={probs[best_action]:.4f})\n")
+                f.write(f"  Distribución completa:\n")
+                
+                # Imprimir en consola
+                print(f"\nLink {link_idx}:")
+                print(f"  Acción preferida: {action_name} (p={probs[best_action]:.4f})")
+                print(f"  Distribución completa:")
+                
+                for action_idx in range(num_actions):
+                    if action_idx == 0:
+                        name = "No TX   "
+                    else:
+                        name = f"Canal {action_idx-1}"
                     
-    #                 # Obtener el valor real de potencia en mW
-    #                 power_value = power_levels[power_level_idx].item()  # Convertir a valor numérico
+                    bar = '█' * int(probs[action_idx] * 50)
+                    line = f"    {name:8s}: {probs[action_idx]:.4f} {bar}"
                     
-    #                 label = f'Canal {channel_idx} - {power_value:.0f} mW'
-    #                 color = f'C{channel_idx}'
-    #                 linewidth = 2 - (power_level_idx * 0.3)
-    #                 linestyle = ['-', '--', '-.', ':'][power_level_idx % 4]
+                    f.write(line + "\n")
+                    print(line)
             
-    #             plt.plot(normalized_psi_array[:, node_idx, action_idx], 
-    #                     label=label, color=color, linewidth=linewidth, 
-    #                     linestyle=linestyle)
+            # Análisis de conflictos
+            f.write("\n" + "-"*70 + "\n")
+            f.write("ANÁLISIS DE CONFLICTOS DE CANAL\n")
+            f.write("-"*70 + "\n")
             
-    #         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    #         plt.tight_layout()
+            print("\n" + "-"*70)
+            print("ANÁLISIS DE CONFLICTOS DE CANAL")
+            print("-"*70)
             
-    #         image_name = f'node_{node_idx}_policy_analysis.png'
-    #         image_path = os.path.join(policy_dir, image_name)
-    #         plt.savefig(image_path, bbox_inches='tight')
-    #         plt.close()
+            for channel in range(num_channels_actual):
+                action_idx = channel + 1
+                links_using_ch = []
+                
+                for link_idx in range(num_links):
+                    if final_probs[link_idx, action_idx] > 0.3:  # Umbral
+                        links_using_ch.append((link_idx, final_probs[link_idx, action_idx]))
+                
+                if len(links_using_ch) > 1:
+                    msg = f"  ⚠ Canal {channel}: Usado por {len(links_using_ch)} links (INTERFERENCIA)"
+                    for link_id, prob in links_using_ch:
+                        msg += f"\n      Link {link_id} (p={prob:.3f})"
+                elif len(links_using_ch) == 1:
+                    link_id, prob = links_using_ch[0]
+                    msg = f"  ✓ Canal {channel}: Usado solo por Link {link_id} (p={prob:.3f})"
+                else:
+                    msg = f"  - Canal {channel}: No usado"
+                
+                f.write(msg + "\n")
+                print(msg)
+            
+            f.write("\n" + "="*70 + "\n")
+            print("="*70)
+            print(f"\nAnálisis completo guardado en: {analysis_file}")
 
-
-
-    normalized_psi= torch.mean(normalized_psi, dim=0)
+    # =========================================================================
+    # SAVE FINAL NORMALIZED PSI
+    # =========================================================================
+    
+    normalized_psi = torch.mean(normalized_psi, dim=0)
     normalized_psi_array = normalized_psi.detach().numpy()
-    psi_path = os.path.join(path, 'normalized_psi' + '_' + eps_str + '_' +  mu_lr_str + '_' + batch_size_str +'.txt')
-    np.savetxt(psi_path, normalized_psi_array, delimiter=',', fmt='%.4f') 
+    psi_path = os.path.join(path, f'normalized_psi_{eps_str}_{mu_lr_str}_{batch_size_str}.txt')
+    np.savetxt(psi_path, normalized_psi_array, delimiter=',', fmt='%.4f')
 
     return path

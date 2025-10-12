@@ -174,41 +174,51 @@ def graphs_to_tensor_sc(num_links, num_features = 1, b5g = False, building_id = 
 
 
 
-def zero_out_last_links(channel_matrix, num_links_to_keep=3):
-    """
-    Pone en cero todos los coeficientes de canal de los últimos enlaces.
-    
-    Args:
-        channel_matrix: Tensor de forma [batch_size, num_links, num_links]
-        num_links_to_keep: Número de enlaces a mantener activos (default=3)
-    
-    Returns:
-        channel_matrix modificada con últimos enlaces en cero
-    """
-    modified_matrix = channel_matrix.clone()
-    
-    # Poner en cero todas las filas y columnas de los últimos enlaces
-    modified_matrix[:, num_links_to_keep:, :] = 0  # Filas de enlaces 3 y 4
-    modified_matrix[:, :, num_links_to_keep:] = 0  # Columnas de enlaces 3 y 4
-    
-    return modified_matrix
+
+# def get_gnn_inputs(x_tensor, channel_matrix_tensor):
+#     input_list = []
+#     size = channel_matrix_tensor.shape[0]
+#     for i in range(size):
+#         x = x_tensor[i,:,:]
+#         channel_matrix = channel_matrix_tensor[i,:,:]
+#         norm = np.linalg.norm(channel_matrix, ord = 2, axis = (0,1))
+#         channel_matrix_norm = channel_matrix / norm
+#         channel_matrix_norm = channel_matrix
+#         edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
+#         edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]]
+#         edge_attr = edge_attr.to(torch.float)
+#         input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
+#     return input_list
 
 
 
 def get_gnn_inputs(x_tensor, channel_matrix_tensor):
     input_list = []
     size = channel_matrix_tensor.shape[0]
+    num_links = x_tensor.shape[1]
+    
     for i in range(size):
-        x = x_tensor[i,:,:]
         channel_matrix = channel_matrix_tensor[i,:,:]
+        
+        # Features: [one-hot ID, canal directo]
+        node_id = torch.eye(num_links)  # [3, 3]
+        diag = torch.diagonal(channel_matrix).unsqueeze(1)  # [3, 1]
+        x = torch.cat([node_id, diag], dim=1).float()  # AGREGAR .float() ACÁ
+        
         norm = np.linalg.norm(channel_matrix, ord = 2, axis = (0,1))
         channel_matrix_norm = channel_matrix / norm
-        # channel_matrix_norm = channel_matrix
         edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
-        edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]]
-        edge_attr = edge_attr.to(torch.float)
+        edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]].float()  # Y ACÁ
+        
         input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
     return input_list
+
+
+
+
+
+
+
 
 def objective_function(rates):
     # sumamos solo sobre links
@@ -237,23 +247,79 @@ def get_rates(phi, channel_matrix_batch, sigma):
 
 
 # Versión 1 y 2
-def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
-    batch_size, num_links, num_channels = phi.shape
+# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
+#     batch_size, num_links, num_channels = phi.shape
 
-    # Señal útil
-    diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
-    signal = diagH.unsqueeze(-1) * phi
+#     # Señal útil
+#     diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
+#     signal = diagH.unsqueeze(-1) * phi
 
-    # Interferencia intra-canal
-    interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
+#     # Interferencia intra-canal
+#     interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
 
-    denom = sigma + interf_same
+#     denom = sigma + interf_same
     
-    snr = signal / (denom + eps)
+#     snr = signal / (denom + eps)
 
-    # Tasa por enlace
-    rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
+#     # Tasa por enlace
+#     rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
+#     return rates
+
+
+
+# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
+#     batch_size, num_links, num_channels = phi.shape
+    
+#     # Señal útil: |h_{mm}|^2 * p_{m,c}
+#     diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
+#     signal = diagH.unsqueeze(-1) * phi  # [batch, links, channels]
+    
+#     # Interferencia base: sum_{n≠m} |h_{nm}|^2 * p_{n,c}
+#     interf_base = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
+    
+#     # Factor de acoplamiento: p_{m,c} / p_0
+#     coupling_factor = phi / p0  # [batch, links, channels]
+    
+#     # Interferencia modulada por acoplamiento cruzado
+#     interf_coupled = interf_base * coupling_factor
+    
+#     # Denominador: σ + interferencia acoplada
+#     denom = sigma+ interf_coupled
+    
+#     # SNR por canal
+#     snr = signal / (denom + eps)
+    
+#     # Tasa por enlace: log(1 + sum_c SNR_c)
+#     rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
+
+def nuevo_get_rates(phi, H, sigma, eps=1e-12,p0=None):
+    """
+    TU VERSIÓN (del paper):
+    Interferencia modulada por p_mc/p0
+    
+    Interpretación: "Rate efectivo considerando contención"
+    """
+    batch_size, num_links, num_channels = phi.shape
+    
+    diagH = torch.diagonal(H, dim1=1, dim2=2)  # [batch, num_links]
+    signal = diagH.unsqueeze(-1) * phi  # [batch, num_links, num_channels]
+    
+    # Coupling factor: p_mc / p0
+    coupling_factor = phi / (p0 + eps)
+    
+    # Interferencia base
+    interference_base = torch.einsum('bij,bjc->bic', H.float(), phi.float())
+    interference_base = interference_base - signal
+    
+    # Modular por coupling
+    interference_modulated = interference_base * coupling_factor
+    
+    # SINR y rate
+    sinr = signal / (sigma + interference_modulated + eps)
+    rates = torch.log1p(torch.sum(sinr, dim=-1))
+    
     return rates
+
 
 
 
