@@ -352,7 +352,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--building_id', type=int, default=990)
     parser.add_argument('--b5g', type=int, default=0)
-    parser.add_argument('--num_links', type=int, default=3)
+    parser.add_argument('--num_links', type=int, default=6)
     parser.add_argument('--num_layers', type=int, default=3)
     parser.add_argument('--k', type=int, default=3)
     parser.add_argument('--epochs', type=int, default=40)

@@ -25,16 +25,16 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
     # Create path
     if train:
         if mark:
-            path = f'/Users/nahuelpineyro/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/mark_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}'
+            path = f'/Users/mauriciovieirarodriguez/project/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/mark_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}'
         else:
-            path = f'/Users/nahuelpineyro/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/ceibal_train_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}'
+            path = f'/Users/mauriciovieirarodriguez/project/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/ceibal_train_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}'
         
         if baseline == 0:
             path = path + '/'
         else:
             path = path + '_baseline' + str(baseline) + '/'
     else:
-        path = f'/Users/nahuelpineyro/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/ceibal_val_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}/'
+        path = f'/Users/mauriciovieirarodriguez/project/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/ceibal_val_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}/'
 
     if not os.path.exists(path):
         os.makedirs(path)
