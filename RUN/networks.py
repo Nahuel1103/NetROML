@@ -33,6 +33,9 @@ def build_adhoc_network(num_channels,pl):
     data['R'] = receivers
     data['A'] = L
     #scipy.io.savemat("pl_net" + str(num_channels) + ".mat", data)
+    for i in range(0,3):
+        L[i,i] += 5
+        
     L[0,2:6] = 0
     L[1,3:6] = 0
     L[2,0] = 0
