@@ -8,23 +8,23 @@ Link 0:
   Distribución completa:
     No TX   : 0.0000 
     Canal 0 : 0.0000 
-    Canal 1 : 1.0000 ██████████████████████████████████████████████████
+    Canal 1 : 1.0000 █████████████████████████████████████████████████
     Canal 2 : 0.0000 
 
 Link 1:
-  Acción preferida: Canal 2 (p=1.0000)
+  Acción preferida: Canal 0 (p=1.0000)
   Distribución completa:
     No TX   : 0.0000 
-    Canal 0 : 0.0000 
+    Canal 0 : 1.0000 █████████████████████████████████████████████████
     Canal 1 : 0.0000 
-    Canal 2 : 1.0000 █████████████████████████████████████████████████
+    Canal 2 : 0.0000 
 
 Link 2:
   Acción preferida: Canal 1 (p=1.0000)
   Distribución completa:
     No TX   : 0.0000 
     Canal 0 : 0.0000 
-    Canal 1 : 1.0000 ██████████████████████████████████████████████████
+    Canal 1 : 1.0000 █████████████████████████████████████████████████
     Canal 2 : 0.0000 
 
 Link 3:
@@ -54,10 +54,10 @@ Link 5:
 ----------------------------------------------------------------------
 ANÁLISIS DE CONFLICTOS DE CANAL
 ----------------------------------------------------------------------
-  - Canal 0: No usado
+  ✓ Canal 0: Usado solo por Link 1 (p=1.000)
   ⚠ Canal 1: Usado por 2 links (INTERFERENCIA)
       Link 0 (p=1.000)
       Link 2 (p=1.000)
-  ✓ Canal 2: Usado solo por Link 1 (p=1.000)
+  - Canal 2: No usado
 
 ======================================================================

@@ -1,5 +1,6 @@
 import pickle
 import numpy as np
+import os
 from networks import build_adhoc_network, build_line_network, build_cellular_network, build_adhoc_network_sc
 
 num_graphs = 64000
@@ -13,8 +14,10 @@ for _ in range(num_graphs):
     graphs.append(L)
 
 # Guarda el archivo en la ruta esperada por tu función
-# output_path = '/Users/nahuelpineyro/NetROML/graphs/2_4_990/sc_graphs.pkl'
-output_path = '/Users/mauriciovieirarodriguez/project/NetROML/DATA/graphs/2_4_990/sc_graphs.pkl'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+output_dir = os.path.join(BASE_DIR, '..', 'graphs', '2_4_990')
+os.makedirs(output_dir, exist_ok=True)
+output_path = os.path.join(output_dir, 'sc_graphs.pkl')
 with open(output_path, 'wb') as f:
     pickle.dump(graphs, f)
 

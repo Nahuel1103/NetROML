@@ -22,19 +22,25 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
     mu_lr_str = str(f"{mu_lr:.0e}")
     batch_size_str = str(batch_size)
 
-    # Create path
+    # Agrega esto:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    RESULTS_ROOT = os.path.join(BASE_DIR, '..', 'results')  # Ajusta si tu estructura cambia
+
+    # Y reemplaza toda la lógica de creación de 'path' con esto:
+    subfolder = f"{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}"
     if train:
         if mark:
-            path = f'/Users/mauriciovieirarodriguez/project/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/mark_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}'
+            exp_name = f"mark_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}"
         else:
-            path = f'/Users/mauriciovieirarodriguez/project/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/ceibal_train_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}'
-        
+            exp_name = f"ceibal_train_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}"
         if baseline == 0:
-            path = path + '/'
+            result_path = os.path.join(RESULTS_ROOT, subfolder, exp_name)
         else:
-            path = path + '_baseline' + str(baseline) + '/'
+            result_path = os.path.join(RESULTS_ROOT, subfolder, exp_name + f"_baseline{baseline}")
     else:
-        path = f'/Users/mauriciovieirarodriguez/project/NetROML/results/{band[b5g]}_{building_id}/torch_results/n_layers{num_layers}_order{K}/ceibal_val_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}/'
+        exp_name = f"ceibal_val_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}"
+        result_path = os.path.join(RESULTS_ROOT, subfolder, exp_name)
+    path = result_path  # El resto de la función puede seguir usando 'path'
 
     if not os.path.exists(path):
         os.makedirs(path)
@@ -124,8 +130,7 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
         # =====================================================================
         
         for link_idx in range(num_links):
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 14))
-            
+            fig, ax1 = plt.subplots(1, 1, figsize=(16, 13))            
             # Subplot 1: Todas las acciones
             ax1.set_title(f'Link {link_idx}: Evolución de Probabilidades de Acción', 
                          fontsize=14, fontweight='bold')
@@ -153,27 +158,12 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
             ax1.grid(True, alpha=0.3)
             ax1.set_ylim(-0.05, 1.05)
             
-            # Subplot 2: Solo canales de transmisión (sin "No TX")
-            ax2.set_title(f'Link {link_idx}: Solo Canales de Transmisión', 
-                         fontsize=14, fontweight='bold')
-            ax2.set_xlabel('Iteraciones (x10)', fontsize=12)
-            ax2.set_ylabel('Probabilidad', fontsize=12)
-            
-            for channel in range(num_channels_actual):
-                action_idx = channel + 1
-                ax2.plot(normalized_psi_array[:, link_idx, action_idx], 
-                        label=f'Canal {channel}', 
-                        color=f'C{channel}', 
-                        linewidth=2.5,
-                        marker='o' if normalized_psi_array.shape[0] < 50 else None,
-                        markersize=4)
-            
-            ax2.legend(fontsize=11, loc='best')
-            ax2.grid(True, alpha=0.3)
-            ax2.set_ylim(-0.05, 1.05)
             
             plt.tight_layout()
-            image_name = f'link_{link_idx}_policy_evolution.png'
+            image_name = f'link_{link_idx}_policy_evolution.pdf'
+            plt.savefig(os.path.join(policy_dir, image_name), dpi=150, bbox_inches='tight')
+
+            image_name = f'link_{link_idx}_policy_evolution.svg'
             plt.savefig(os.path.join(policy_dir, image_name), dpi=150, bbox_inches='tight')
             plt.close()
         

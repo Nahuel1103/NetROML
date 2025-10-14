@@ -18,6 +18,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.nn import TAGConv
 from torch_geometric.nn import GCNConv
 import matplotlib.pyplot as plt
+import os
 
 import scipy.io
 
@@ -110,7 +111,9 @@ def transform_matrix(adj_matrix, all = True):
 def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, building_id=990):
     
     band = ['2_4', '5']
-    path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    GRAPH_ROOT = os.path.join(BASE_DIR, '..', 'graphs')
+    path = os.path.join(GRAPH_ROOT, f'{band[b5g]}_{building_id}')
 
     if (train):
         file_name = 'train_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
@@ -140,9 +143,11 @@ def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, buildin
 def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
-    path = '/Users/nahuelpineyro/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    GRAPH_ROOT = os.path.join(BASE_DIR, '..', 'graphs')
+    path = os.path.join(GRAPH_ROOT, f'{band[b5g]}_{building_id}')
     file_name = 'synthetic_graphs.pkl'
-    with open(path + file_name, 'rb') as archivo:
+    with open(os.path.join(path, file_name), 'rb') as archivo:
         graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
@@ -158,9 +163,11 @@ def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, buildin
 def graphs_to_tensor_sc(num_links, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/DATA/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    GRAPH_ROOT = os.path.join(BASE_DIR, '..', 'graphs')
+    path = os.path.join(GRAPH_ROOT, f'{band[b5g]}_{building_id}')
     file_name = 'sc_graphs.pkl'
-    with open(path + file_name, 'rb') as archivo:
+    with open(os.path.join(path, file_name), 'rb') as archivo:
         graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
