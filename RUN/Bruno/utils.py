@@ -183,6 +183,7 @@ def power_constraint(phi, pmax):
     sum_phi = torch.sum(phi, dim=(1,2))
     return (sum_phi - pmax)
 
+
 def mu_update(mu_k, power_constr, eps):
     mu_k = mu_k.detach()
     mu_k_update = eps * torch.mean(power_constr, dim = 0)
@@ -190,42 +191,7 @@ def mu_update(mu_k, power_constr, eps):
     mu_k = torch.max(mu_k, torch.tensor(0.0))
     return mu_k
 
-# def get_rates(phi, channel_matrix_batch, sigma):
-#     phi = torch.squeeze(phi, dim = 2)
-#     numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
-#     expanded_phi = torch.unsqueeze(phi, dim=2)
-#     denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator + sigma
-#     rates = torch.log(numerator / denominator + 1)
-#     return rates
 
-# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4):
-#     """
-#     phi: [batch_size, num_links, num_channels] (potencia por canal)
-#     channel_matrix_batch: [batch_size, num_links, num_links] (ganancias |h_ji|^2)
-#     sigma: ruido (scalar o tensor compatible)
-#     p0: potencia por canal cuando está activo
-#     """
-#     batch_size, num_links, num_channels = phi.shape
-
-#     rates = torch.zeros(batch_size, num_links, num_channels)  
-
-#     # acumulamos SNRs por canal
-#     total_snr = torch.zeros(batch_size, num_links)
-
-#     for ch in range(num_channels):
-#             p_i = phi[:,:,ch]
-#             numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * p_i, dim=2)
-#             expanded_phi = torch.unsqueeze(p_i, dim=2)
-#             denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) 
-#             denominator -= numerator 
-#             denominator = denominator*p_i.unsqueeze(-1)/p0
-#             denominator += sigma
-#             snr_ch = numerator / denominator
-#             total_snr += snr_ch.squeeze(-1)    # acumulamos los SINRs de cada canal
-    
-#     rates = torch.log(total_snr + 1)
-            
-#     return rates
 
 def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3):
     """

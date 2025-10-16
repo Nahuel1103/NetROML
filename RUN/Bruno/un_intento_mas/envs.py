@@ -3,6 +3,7 @@ from gymnasium import spaces
 import numpy as np
 from rates import get_reward
 import torch
+from utils import *
 
 
 class APNetworkEnv(gym.Env):
@@ -50,7 +51,8 @@ class APNetworkEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
 
 
-    def __init__(self, n_APs=5, num_channels=3, P0=4, n_power_levels=3, power_levels_explicit=None, Pmax=0.7, max_steps=500, flatten_obs=False, alpha=0.3):
+    def __init__(self, n_APs=5, num_channels=3, P0=4, n_power_levels=3, 
+                 power_levels_explicit=None, Pmax=0.7, max_steps=500, alpha=0.3):
         """
         Inicializa el entorno de red de APs.
 
@@ -80,7 +82,6 @@ class APNetworkEnv(gym.Env):
         self.n_APs = n_APs
         self.num_channels = num_channels
         self.max_steps = max_steps
-        self.flatten_obs = flatten_obs
         self.alpha = alpha
 
         if power_levels_explicit is not None:
@@ -96,35 +97,25 @@ class APNetworkEnv(gym.Env):
         self.Pmax = P0*Pmax
 
 
-        # DEFINO ESPACIO DE ACCIONES
-        # Matriz con tamaño (cantidad de acciones posibles * n_APs)
+        # --- Espacio de acciones ---
+        # Cada AP tiene (num_channels * n_power_levels + 1) posibles acciones (incluye apagado)
         self.action_space = spaces.MultiDiscrete(
             [(self.num_channels * self.n_power_levels + 1)] * self.n_APs
         )
         
 
-        # DEFINO ESPACIO DE OBSERVACIÓN
-        if self.flatten_obs:
-            # Observaciones como vector 1D
-            self.observation_space = spaces.Box(
-                low=np.zeros(self.n_APs * 2, dtype=np.float32),
-                high=np.array([self.num_channels, self.P0] * self.n_APs, dtype=np.float32),
-                dtype=np.float32
-            )
-        else:
-            # Observaciones como matriz (n_APs, 2)
-            self.observation_space = spaces.Box(
-                low=np.array([[0, 0]] * self.n_APs, dtype=np.float32),
-                high=np.array([[self.num_channels, self.P0]] * self.n_APs, dtype=np.float32),
-                dtype=np.float32
-            )
+        # --- Espacio de observaciones ---
+        self.observation_space = spaces.Dict({
+            "H": spaces.Box(low=0, high=np.inf, shape=(n_APs, n_APs), dtype=np.float32),
+            "mu": spaces.Box(low=0, high=np.inf, shape=(n_APs,), dtype=np.float32)
+        })
 
-
+        # --- Estado interno ---
         self.state = None
+        self.H = None
+        self.mu_power = np.zeros(self.n_APs, dtype=np.float32)
         self.current_step = 0
-        self.power_history = []  #Para guardar el histórico de potencias
-
-
+        self.power_history = []   # Para guardar el histórico de potencias y calcular el promedio luego
 
 
     def reset(self, seed=None, options=None):
@@ -148,29 +139,26 @@ class APNetworkEnv(gym.Env):
 
         super().reset(seed=seed)
         self.current_step = 0
+        self.power_history = []
+
+        # Genero canal inicial y mu inicial
+        self.H = self._get_channel_matrix()
+        self.mu_power = np.zeros(self.n_APs, dtype=np.float32)
+
 
         # Estado inicial aleatorio
-         
-        # Canal: 1..num_channels
-        canales = np.random.randint(1, self.num_channels + 1, size=(self.n_APs, 1)).astype(np.float32)
-        # Potencia: 1..n_power_levels
+        self.canales = np.random.randint(1, self.num_channels + 1, size=(self.n_APs, 1)).astype(np.float32)
         indices_pot = np.random.randint(0, self.n_power_levels, size=(self.n_APs, 1))
-        potencias = self.power_levels[indices_pot].astype(np.float32)
-        
-        state = np.hstack([canales, potencias])
+        self.potencias = self.power_levels[indices_pot].astype(np.float32)
 
-        if self.flatten_obs:
-            state = state.flatten()
+        obs = {"H": self.H, "mu": self.mu}
+        info = {}
 
-        self.state = state
-
-        self.power_history = []   # Reiniciar historial de potencias
-
-        return self.state, {}
+        return obs, info
 
 
     
-    def step(self, action, H=None, graph=None):
+    def step(self, action):
         """
         Avanza el entorno un paso, dado un vector de acciones.
 
@@ -199,14 +187,12 @@ class APNetworkEnv(gym.Env):
         """
 
         self.current_step += 1
-        action = np.array(action)
+        action = np.array(action)   # ver si paso la accion de una o los logits
 
-        # actualizar H y graph si se pasa
-        if H is not None:
-            self.H = H
-
-        if graph is not None:
-            self.graph = graph
+        # Actualizar canal y multiplicadores
+        ##### ¿ESTO TENDRIA QUE HACERLO AHORA O AL FINAL?
+        self.H = self._get_channel_matrix()
+        self.mu = self._update_mu()
 
         # Inicializamos estado nuevo con ceros
         new_state = np.zeros((self.n_APs, 2), dtype=np.float32)
@@ -230,9 +216,9 @@ class APNetworkEnv(gym.Env):
 
         # Construyo phi
         phi = torch.zeros((self.n_APs, self.num_channels), dtype=torch.float32)
-        all_canales = new_state[:, 0].long()
-        all_potencias = new_state[:, 1].float() 
-        phi[torch.arange(self.n_APs), all_canales] = all_potencias
+        canales_idx = torch.tensor(new_state[:, 0] - 1, dtype=torch.long)
+        phi[torch.arange(self.n_APs), canales_idx] = torch.tensor(new_state[:, 1], dtype=torch.float32)
+
 
 
 
@@ -249,12 +235,7 @@ class APNetworkEnv(gym.Env):
             self.state = new_state
 
 
-        # Promedio histórico de potencia por AP
-        
-        # Reward de ejemplo: suma de potencias activas
-        # HAY QUE EDITARLO
-        # Penalización si algún AP supera Pmax
-        reward = self._get_reward(self.power_history, self.Pmax, phi, channel_matrix, sigma, p0=self.P0, alpha=self.alpha)
+        reward = self._get_reward(phi)
         
 
         # terminated se usaría si, cumplida una condición, debe empezar el siguiente paso reseteando el state.
@@ -263,12 +244,36 @@ class APNetworkEnv(gym.Env):
         # Indica si el episodio terminó porque se alcanzó un limite impuesto (por ejemplo, max steps)
         truncated = self.current_step >= self.max_steps
 
-        # {} es un diccionario opcional que se usa para devolver información extra que no forma parte del estado, 
+        # info{} es un diccionario opcional que se usa para devolver información extra que no forma parte del estado, 
         # pero puede ser útil para debugging, logging o métricas.
-
-        info = {"avg_power": np.mean(self.power_history, axis=0)}
+        info = {"avg_powers": np.mean(self.power_history, axis=0)}
         
         return self.state, reward, terminated, truncated, info
+    
+
+
+    def _get_reward(self, phi):
+        # cambiar este mu, deberia usar mu_update creo
+        mu_power=0.5
+        # Cambiar este sigma
+        sigma=0.5
+
+        # Rate general según la capacidad de Shannon
+        all_rates = nuevo_get_rates(phi, self.H, sigma, self.P0, self.alpha)
+        rate = torch.sum(all_rates, dim=1) #puede que este sum este mal o haya que hacer otro sum mas
+
+        # Power constraint
+        avg_power = torch.tensor(np.mean(self.power_history, axis=0))   # [nAPs,1]
+        power_penalty=torch.sum(avg_power - self.Pmax)   # [1]
+
+        reward = rate - mu_power*power_penalty
+
+        return float(reward.item())
+
+    
+    
+    def _get_channel_matrix(self):
+        pass
 
 
 
@@ -297,17 +302,7 @@ class APNetworkEnv(gym.Env):
         # Si no se habre nada, se puede dejarlo como pass.
         pass
 
-    def _get_reward(mu_power,power_history, Pmax, phi, channel_matrix_batch, sigma, p0=4, alpha=0.3):
-        # cambiar este mu
-        mu=0.5
-        
-        avg_power = np.mean(power_history, axis=0)   # [nAPs,1]
 
-        power_penalty_per_AP = avg_power - Pmax
-        power_penalty=np.sum(power_penalty_per_AP)
-
-        all_rates=nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3)
-        rate = torch.sum(all_rates,dim=1)
-        
-        reward = rate - mu_power*power_penalty
+    
+    
         
