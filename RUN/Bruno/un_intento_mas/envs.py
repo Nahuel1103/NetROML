@@ -111,11 +111,12 @@ class APNetworkEnv(gym.Env):
         })
 
         # --- Estado interno ---
-        self.state = None
+        # self.state = None
         self.H = None
         self.mu_power = np.zeros(self.n_APs, dtype=np.float32)
         self.current_step = 0
         self.power_history = []   # Para guardar el histórico de potencias y calcular el promedio luego
+
 
 
     def reset(self, seed=None, options=None):
@@ -151,7 +152,7 @@ class APNetworkEnv(gym.Env):
         indices_pot = np.random.randint(0, self.n_power_levels, size=(self.n_APs, 1))
         self.potencias = self.power_levels[indices_pot].astype(np.float32)
 
-        obs = {"H": self.H, "mu": self.mu}
+        obs = {"H": self.H, "mu": self.mu_power}
         info = {}
 
         return obs, info
@@ -192,7 +193,8 @@ class APNetworkEnv(gym.Env):
         # Actualizar canal y multiplicadores
         ##### ¿ESTO TENDRIA QUE HACERLO AHORA O AL FINAL?
         self.H = self._get_channel_matrix()
-        self.mu = self._update_mu()
+        ##### el mu se actualiza asi o lo hace la red?
+        self.mu_power = self._update_mu()
 
         # Inicializamos estado nuevo con ceros
         new_state = np.zeros((self.n_APs, 2), dtype=np.float32)
@@ -204,35 +206,31 @@ class APNetworkEnv(gym.Env):
         a_adj = action[active_mask] - 1
 
         # Hallo que canal usan (solo para los activos)
-        canales = a_adj // self.n_power_levels + 1
+        can = a_adj // self.n_power_levels + 1
 
         # Vemos que potencia usan (solo para los activos)
-        indices_asignacion_potencias = a_adj % self.n_power_levels        # potencias que eligió cada uno (indices en el array de posibles)
-        potencias = self.power_levels[indices_asignacion_potencias].astype(np.float32)        # potencas reales pero que eliguó cada uno
+        # indices_asignacion_potencias = a_adj % self.n_power_levels        # potencias que eligió cada uno (indices en el array de posibles)
+        # potencias = self.power_levels[indices_asignacion_potencias].astype(np.float32)        # potencas reales pero que eliguó cada uno
+        indices_pot = a_adj % self.n_power_levels
+        pot = self.power_levels[indices_pot].astype(np.float32)
+
 
         # Asignamos todo de una sola vez
-        new_state[active_mask, 0] = canales
-        new_state[active_mask, 1] = potencias
+        new_state[active_mask, 0] = can
+        new_state[active_mask, 1] = pot
+
+        self.canales = new_state[:, 0]
+        self.potencias = new_state[:, 1]
+
 
         # Construyo phi
         phi = torch.zeros((self.n_APs, self.num_channels), dtype=torch.float32)
-        canales_idx = torch.tensor(new_state[:, 0] - 1, dtype=torch.long)
-        phi[torch.arange(self.n_APs), canales_idx] = torch.tensor(new_state[:, 1], dtype=torch.float32)
-
-
+        canales_idx = torch.tensor(self.canales - 1, dtype=torch.long)
+        phi[torch.arange(self.n_APs), canales_idx] = torch.tensor(self.potencias, dtype=torch.float32)
 
 
         # Guardar todas las potencias del paso actual en el histórico
-        powers_this_step = np.zeros(self.n_APs, dtype=np.float32)
-        powers_this_step[active_mask] = potencias
-        self.power_history.append(powers_this_step)
-
-
-        # Este será el siguiente estado de la red
-        if self.flatten_obs:
-            self.state = new_state.flatten()
-        else:
-            self.state = new_state
+        self.power_history.append(self.potencias.copy())
 
 
         reward = self._get_reward(phi)
@@ -247,34 +245,57 @@ class APNetworkEnv(gym.Env):
         # info{} es un diccionario opcional que se usa para devolver información extra que no forma parte del estado, 
         # pero puede ser útil para debugging, logging o métricas.
         info = {"avg_powers": np.mean(self.power_history, axis=0)}
-        
-        return self.state, reward, terminated, truncated, info
+
+
+        obs = {"H": self.H, "mu": self.mu_power}
+
+        return obs, reward, terminated, truncated, info
     
 
 
     def _get_reward(self, phi):
         # cambiar este mu, deberia usar mu_update creo
-        mu_power=0.5
+        # mu_power=0.5
         # Cambiar este sigma
         sigma=0.5
 
         # Rate general según la capacidad de Shannon
         all_rates = nuevo_get_rates(phi, self.H, sigma, self.P0, self.alpha)
-        rate = torch.sum(all_rates, dim=1) #puede que este sum este mal o haya que hacer otro sum mas
+        # rate = torch.sum(all_rates, dim=1) #puede que este sum este mal o haya que hacer otro sum mas
+        rate = torch.sum(all_rates)  # suma total de tasas
 
         # Power constraint
         avg_power = torch.tensor(np.mean(self.power_history, axis=0))   # [nAPs,1]
-        power_penalty=torch.sum(avg_power - self.Pmax)   # [1]
+        power_penalty = self.mu_power*(avg_power - self.Pmax)   # [nAPs,1]
+        power_penalty = torch.sum(torch.clamp(power_penalty, min=0.0))    # solo penalizo si es positivo
+        
+        reward = rate - power_penalty
 
-        reward = rate - mu_power*power_penalty
+        # Solo para render
+        self.last_reward = float(reward.item())  
+        self.last_phi = phi.clone().detach()
 
         return float(reward.item())
 
     
     
     def _get_channel_matrix(self):
-        pass
+        # ESTO NO ES LO QUE QUEREMOS, PERO ES PARA VER SI ANDA AUNQUE SEA DESPUES
+        H = np.random.rayleigh(scale=1.0, size=(self.n_APs, self.n_APs)).astype(np.float32)
+        np.fill_diagonal(H, 1.0)  # Ganancia propia más fuerte
+        return H
+        
 
+
+    def _update_mu(self, lr=0.01):
+        # ESTO ME LO DIO EL CHAT, ME DIJO QUE ES LA TIPICA.
+        # COMPARAR CON LA DEL CHINO
+        if len(self.power_history) == 0:
+            return self.mu_power
+
+        avg_power = np.mean(self.power_history, axis=0)
+        self.mu_power = np.maximum(0.0, self.mu_power + lr * (avg_power - self.Pmax))
+        return self.mu_power
 
 
     def render(self):
@@ -286,7 +307,7 @@ class APNetworkEnv(gym.Env):
         # No es obligatorio, pero útil si se quiere visualizar lo que pasa (debugging o mostrar resultados).
         # Puede ser tan simple como un print o tan complejo como gráficos en tiempo real.
         # Si no lo necesitamos, podemos dejarlo vacío o no implementarlo.
-        print(f"Step {self.current_step} | State:\n{self.state}")
+        print(f"Step {self.current_step} | Decisión:\n{self.last_phi} | reward: {self.last_reward}")
 
 
 
