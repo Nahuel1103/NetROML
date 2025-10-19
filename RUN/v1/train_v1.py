@@ -22,18 +22,18 @@ import matplotlib.pyplot as plt
 
 import scipy.io
 
-from plot_results_torch import plot_results
+from plot_results_torch_v1 import plot_results
 from gnn import GNN
-from utils import graphs_to_tensor
-from utils import get_gnn_inputs
-from utils import power_constraint_per_ap
-from utils import objective_function
-from utils import mu_update
-from utils import nuevo_get_rates
+from utils_v1 import graphs_to_tensor
+from utils_v1 import get_gnn_inputs
+from utils_v1 import power_constraint_per_ap
+from utils_v1 import objective_function
+from utils_v1 import mu_update
+from utils_v1 import nuevo_get_rates
 
 
-from utils import graphs_to_tensor_synthetic
-from utils import graphs_to_tensor_sc
+from utils_v1 import graphs_to_tensor_synthetic
+from utils_v1 import graphs_to_tensor_sc
 
 def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
         batch_size=64, epochs=100, eps=5e-5, mu_lr=5e-4, synthetic=1, rn=100, rn1=100,
@@ -80,22 +80,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     
     dropout = True
 
-    #------------------------------------------------------------------------
 
-    # Versión 2
-    # power_levels = torch.tensor([ max_antenna_power_mw/2, max_antenna_power_mw])  # Incluimos 0 = no transmitir
-    # num_power_levels = len(power_levels)
-
-    # output_dim = 2 + num_channels + num_power_levels
-
-
-    #------------------------------------------------------------------------
-    # En train.py:
-    # input_dim = num_links + 1 # Era 1, ahora 3 (o el número de links)
-
-
-
-        # En train.py:
     K_hops = 3  # Parámetro
     input_dim = 2 * K_hops - 1  # = 5
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
@@ -113,9 +98,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         print("Epoch number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
 
-            #------------------------------------------------------------------------
-
-            # Versión 1
             channel_matrix_batch = data.matrix
             channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) 
 
@@ -135,49 +117,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             active_mask = (actions > 0)
             active_channels = actions[active_mask] - 1
             phi[active_mask, active_channels] = max_antenna_power_mw  
-            #------------------------------------------------------------------------
-
-            #------------------------------------------------------------------------
-            #Versión 2
-
-            # channel_matrix_batch = data.matrix
-            # channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) # [64, 5, 5]
-            # psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)   # [batch*num_links, num_actions]
-            # psi = psi.view(batch_size, num_links, output_dim)                  # [batch, num_links, num_actions]
-          
-            # psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
-            # psi = psi.view(batch_size, num_links, output_dim)
-
-            # action_logits = psi                                                    # [batch, links, output_dim]
-            # action_probs = torch.softmax(action_logits, dim=-1)                    # [batch, links, output_dim]
-            # action_dist = torch.distributions.Categorical(probs=action_probs)
-            # actions = action_dist.sample()                                         # [batch, links] - valores 0..(output_dim-1)
-            # log_p_actions = action_dist.log_prob(actions)                          # [batch, links]
-
-            # # Mascara de transmisión (acción != 0)
-            # transmit_mask = (actions != 0)
-            # # Log probability total por muestra (sumamos sobre links)
-            # log_p_sum = log_p_actions.sum(dim=1).unsqueeze(-1)                     # [batch, 1]
-
-            # # Construir phi (potencias por canal)
-            # phi = torch.zeros(batch_size, num_links, num_channels)
-
-            # # Solo asignar potencia si decide transmitir
-            # transmit_indices = torch.where(transmit_mask)
-            # if len(transmit_indices[0]) > 0:
-            #     batch_idx_tx = transmit_indices[0]
-            #     link_idx_tx = transmit_indices[1]
-            #     selected_actions = actions[batch_idx_tx, link_idx_tx]             # valores 1..(C*P)
-            #     # convertir a canal y potencia
-            #     selected_minus1 = selected_actions - 1
-            #     selected_channels = (selected_minus1 // num_power_levels).long()
-            #     selected_powers_idx = (selected_minus1 % num_power_levels).long()
-            #     # Obtener valores reales de potencia (ej. en mW)
-            #     selected_powers_values = power_levels[selected_powers_idx].to(phi.dtype)
-            #     # Asignar phi
-            #     phi[batch_idx_tx, link_idx_tx, selected_channels] = selected_powers_values
-            #------------------------------------------------------------------------
-
 
 
             power_constr_per_ap = power_constraint_per_ap(phi, pmax_per_ap)  # [batch_size, num_links]
@@ -202,40 +141,10 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=5.0)  
             optimizer.step()
 
-            # if batch_idx % 10 == 0:
-            #     with torch.no_grad():
-            #         # Ortogonal
-            #         phi_ortho = torch.zeros_like(phi)
-            #         phi_ortho[:, 0, 0] = max_antenna_power_mw
-            #         phi_ortho[:, 1, 1] = max_antenna_power_mw
-            #         phi_ortho[:, 2, 2] = max_antenna_power_mw
-                    
-            #         rates_ortho = nuevo_get_rates(phi_ortho, channel_matrix_batch, sigma, p0=max_antenna_power_mw)
-            #         sum_rate_ortho = objective_function(rates_ortho).mean()  # SIN menos (rate crudo)
-                    
-            #         sum_rate_actual = objective_function(rates).mean()  # SIN menos (rate crudo)
-                    
-            #         print(f"Batch {batch_idx}: Rate ortho={sum_rate_ortho:.4f}, Rate actual={sum_rate_actual:.4f}, Diff={sum_rate_ortho - sum_rate_actual:.4f}")
             if batch_idx%10 == 0:
 
-            #------------------------------------------------------------------------
-
-                # Versión 1
                 probs_mean_batch = probs.mean(dim=0)  # Promedio sobre batch: [num_links, num_channels+1]
                 probs_values.append(probs_mean_batch.detach().numpy())
-            #------------------------------------------------------------------------
-
-            #------------------------------------------------------------------------
-
-                # Versión 2
-                # probs_mean_batch = action_probs.mean(dim=0)  # Promedio sobre batch: [num_links, num_channels+1]
-                # probs_values.append(probs_mean_batch.detach().numpy())
-                              
-                # # Guardar también información de potencia (phi)
-                # phi_mean_batch = phi.mean(dim=0)  # Promedio sobre batch: [num_links, num_channels]
-                # power_values.append(phi_mean_batch.detach().numpy())
-            #------------------------------------------------------------------------
-
                 
                 power_constraint_values.append(power_constr_per_ap_mean.detach().numpy())
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
@@ -247,7 +156,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         if param.requires_grad:
             print(name, param.data)
 
-# Versión 1
     path = plot_results(
             building_id=building_id,
             b5g=b5g,
@@ -268,33 +176,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             train=True
         )
 
-
-        
-
-# Versión 2
-
-    # path = plot_results(
-    #         building_id=building_id,
-    #         b5g=b5g,
-    #         normalized_psi=psi, 
-    #         normalized_psi_values=probs_values,
-    #         power_values=power_values,  # ← AGREGA ESTA LÍNEA
-    #         num_layers=num_layers,
-    #         K=K,
-    #         batch_size=batch_size,
-    #         epochs=epochs,
-    #         rn=rn,
-    #         rn1=rn1,
-    #         eps=eps,
-    #         mu_lr=mu_lr,
-    #         objective_function_values=objective_function_values,
-    #         power_constraint_values=power_constraint_values,
-    #         loss_values=loss_values,
-    #         mu_k_values=mu_k_values,
-    #         num_channels = num_channels,
-    #         num_power_levels = num_power_levels,
-    #         power_levels = power_levels
-    #     )
 
     file_name = path + 'objective_function_values_train_' + str(epochs) + '.pkl'
     with open(file_name, 'wb') as archivo:
