@@ -91,7 +91,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
     #------------------------------------------------------------------------
     # En train.py:
-    input_dim = num_links +1 # Era 1, ahora 3 (o el número de links)
+    input_dim = num_links + 1 # Era 1, ahora 3 (o el número de links)
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
     optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
 
@@ -112,7 +112,10 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             # Versión 1
             channel_matrix_batch = data.matrix
             channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) 
-                
+
+            if epoc == 1 and batch_idx == 1:
+                print(channel_matrix_batch)
+            
             psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr) 
             psi = psi.view(batch_size, num_links, num_channels+1) 
             probs = torch.softmax(psi, dim=-1)  

@@ -4,60 +4,58 @@ ANÁLISIS DE POLÍTICA FINAL
 
 
 Link 0:
-  Acción preferida: Canal 1 (p=1.0000)
+  Acción preferida: Canal 2 (p=0.8947)
   Distribución completa:
-    No TX   : 0.0000 
-    Canal 0 : 0.0000 
-    Canal 1 : 1.0000 █████████████████████████████████████████████████
-    Canal 2 : 0.0000 
+    No TX   : 0.0009 
+    Canal 0 : 0.0004 
+    Canal 1 : 0.1041 █████
+    Canal 2 : 0.8947 ████████████████████████████████████████████
 
 Link 1:
-  Acción preferida: Canal 0 (p=1.0000)
+  Acción preferida: Canal 1 (p=0.7883)
   Distribución completa:
     No TX   : 0.0000 
-    Canal 0 : 1.0000 █████████████████████████████████████████████████
-    Canal 1 : 0.0000 
-    Canal 2 : 0.0000 
+    Canal 0 : 0.1195 █████
+    Canal 1 : 0.7883 ███████████████████████████████████████
+    Canal 2 : 0.0922 ████
 
 Link 2:
-  Acción preferida: Canal 1 (p=1.0000)
+  Acción preferida: Canal 0 (p=0.9516)
   Distribución completa:
     No TX   : 0.0000 
-    Canal 0 : 0.0000 
-    Canal 1 : 1.0000 █████████████████████████████████████████████████
-    Canal 2 : 0.0000 
+    Canal 0 : 0.9516 ███████████████████████████████████████████████
+    Canal 1 : 0.0316 █
+    Canal 2 : 0.0168 
 
 Link 3:
-  Acción preferida: No TX (p=1.0000)
+  Acción preferida: No TX (p=0.9999)
   Distribución completa:
-    No TX   : 1.0000 █████████████████████████████████████████████████
+    No TX   : 0.9999 █████████████████████████████████████████████████
     Canal 0 : 0.0000 
     Canal 1 : 0.0000 
-    Canal 2 : 0.0000 
+    Canal 2 : 0.0001 
 
 Link 4:
-  Acción preferida: No TX (p=1.0000)
+  Acción preferida: No TX (p=0.9998)
   Distribución completa:
-    No TX   : 1.0000 █████████████████████████████████████████████████
+    No TX   : 0.9998 █████████████████████████████████████████████████
     Canal 0 : 0.0000 
     Canal 1 : 0.0000 
-    Canal 2 : 0.0000 
+    Canal 2 : 0.0002 
 
 Link 5:
-  Acción preferida: No TX (p=1.0000)
+  Acción preferida: No TX (p=0.9998)
   Distribución completa:
-    No TX   : 1.0000 █████████████████████████████████████████████████
+    No TX   : 0.9998 █████████████████████████████████████████████████
     Canal 0 : 0.0000 
     Canal 1 : 0.0000 
-    Canal 2 : 0.0000 
+    Canal 2 : 0.0002 
 
 ----------------------------------------------------------------------
 ANÁLISIS DE CONFLICTOS DE CANAL
 ----------------------------------------------------------------------
-  ✓ Canal 0: Usado solo por Link 1 (p=1.000)
-  ⚠ Canal 1: Usado por 2 links (INTERFERENCIA)
-      Link 0 (p=1.000)
-      Link 2 (p=1.000)
-  - Canal 2: No usado
+  ✓ Canal 0: Usado solo por Link 2 (p=0.952)
+  ✓ Canal 1: Usado solo por Link 1 (p=0.788)
+  ✓ Canal 2: Usado solo por Link 0 (p=0.895)
 
 ======================================================================

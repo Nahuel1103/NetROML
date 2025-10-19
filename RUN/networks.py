@@ -15,36 +15,92 @@ import pickle
 # L - matrix of pathloss fading
 
 # Explained on Ad-hoc networks on Page 10 Alejandro and Mark's paper --Santiago
-def build_adhoc_network(num_channels,pl):
+# def build_adhoc_network(num_channels,pl):
 
+#     transmitters = np.random.uniform(low=-num_channels, high=num_channels, size=(num_channels,2))
+#     receivers = transmitters + np.random.uniform(low=-num_channels/4,high=num_channels/4, size=(num_channels,2))
+
+#     L = np.zeros((num_channels,num_channels))
+
+#     for i in np.arange(num_channels):
+#         for j in np.arange(num_channels):
+#             d = np.linalg.norm(transmitters[i,:]-receivers[j,:])
+#             L[i,j] = np.power(d,-pl)
+
+
+#     data = {'T': [], 'R':[], 'L':[]}
+#     data['T'] = transmitters
+#     data['R'] = receivers
+#     data['A'] = L
+#     #scipy.io.savemat("pl_net" + str(num_channels) + ".mat", data)
+#     for i in range(0,3):
+#         L[i,i] += 5
+        
+#     # L[0,2:6] = 0
+#     L[1,3:6] = 0
+#     L[0,3:6] = 0
+#     # L[2,0] = 0
+#     L[2,3:6] = 0
+#     L[3,:] = 0
+#     L[4,:] = 0
+#     L[5,:] = 0
+
+#     return L
+
+
+
+
+def build_adhoc_network(num_channels, pl, break_symmetry=True):
     transmitters = np.random.uniform(low=-num_channels, high=num_channels, size=(num_channels,2))
-    receivers = transmitters + np.random.uniform(low=-num_channels/4,high=num_channels/4, size=(num_channels,2))
+    receivers = transmitters + np.random.uniform(low=-num_channels/4, high=num_channels/4, size=(num_channels,2))
 
-    L = np.zeros((num_channels,num_channels))
+    L = np.zeros((num_channels, num_channels))
 
     for i in np.arange(num_channels):
         for j in np.arange(num_channels):
-            d = np.linalg.norm(transmitters[i,:]-receivers[j,:])
-            L[i,j] = np.power(d,-pl)
-
+            d = np.linalg.norm(transmitters[i,:] - receivers[j,:])
+            L[i,j] = np.power(d, -pl)
 
     data = {'T': [], 'R':[], 'L':[]}
     data['T'] = transmitters
     data['R'] = receivers
     data['A'] = L
-    #scipy.io.savemat("pl_net" + str(num_channels) + ".mat", data)
-    for i in range(0,3):
-        L[i,i] += 5
-        
-    L[0,2:6] = 0
+    
+    # MODIFICACIÓN: Diagonal asimétrica para romper simetría
+# Después de calcular L
+    if break_symmetry:
+        for i in range(0, 3):
+            L[i,i] += 5 + i
+            # Reducir interferencia cruzada entre activos
+            for j in range(0, 3):
+                if i != j:
+                    L[i,j] *= 0.3  # Reducir a 30% la interferencia
+    else:
+        # Simétrico (original)
+        for i in range(0, 3):
+            L[i,i] += 5
+    
+    # # Eliminar enlaces
+
+    # Escenario 1
+    # L[0,2:6] = 0
+    # L[1,3:6] = 0
+    # L[2,0] = 0
+    # L[2,3:6] = 0
+    # L[3,:] = 0
+    # L[4,:] = 0
+    # L[5,:] = 0
+
+    #Escenario 2
     L[1,3:6] = 0
-    L[2,0] = 0
+    L[0,3:6] = 0
     L[2,3:6] = 0
     L[3,:] = 0
     L[4,:] = 0
     L[5,:] = 0
     
     return L
+
 
 #############################################
 ############ Generate line network ###############

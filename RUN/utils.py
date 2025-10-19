@@ -198,7 +198,6 @@ def graphs_to_tensor_sc(num_links, num_features = 1, b5g = False, building_id = 
 #     return input_list
 
 
-
 def get_gnn_inputs(x_tensor, channel_matrix_tensor):
     input_list = []
     size = channel_matrix_tensor.shape[0]
@@ -210,7 +209,7 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor):
         # Features: [one-hot ID, canal directo]
         node_id = torch.eye(num_links)  # [3, 3]
         diag = torch.diagonal(channel_matrix).unsqueeze(1)  # [3, 1]
-        x = torch.cat([node_id, diag], dim=1).float()  # AGREGAR .float() ACÁ
+        x = torch.cat([node_id, diag], dim=1).float()  
         
         norm = np.linalg.norm(channel_matrix, ord = 2, axis = (0,1))
         channel_matrix_norm = channel_matrix / norm
@@ -219,6 +218,7 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor):
         
         input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
     return input_list
+
 
 
 
