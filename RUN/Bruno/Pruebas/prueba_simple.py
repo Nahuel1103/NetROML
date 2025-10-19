@@ -2,7 +2,7 @@
 
 
 from stable_baselines3 import PPO
-from envs import APNetworkEnv
+from NetROML.RUN.Bruno.No.envs1 import APNetworkEnv
 
 # Creo el entorno (el nuestro custom)
 env = APNetworkEnv(n_APs=5, num_channels=3, n_power_levels=2, flatten_obs=True)
