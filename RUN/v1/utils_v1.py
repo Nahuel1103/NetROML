@@ -220,12 +220,9 @@ def graphs_to_tensor_sc(num_links, num_features = 1, b5g = False, building_id = 
 #     return input_list
 
 
-
-
-def get_gnn_inputs(x_tensor, channel_matrix_tensor, K=3):
+def get_gnn_inputs(x_tensor, channel_matrix_tensor, num_noise_per_graph=5):
     """
-    Features: k-hop closed loops
-    Equivariante y captura estructura local/global
+    Función creadora de todos los grafos.
     """
     input_list = []
     size = channel_matrix_tensor.shape[0]
@@ -234,44 +231,35 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor, K=3):
     for i in range(size):
         channel_matrix = channel_matrix_tensor[i, :, :]
         
-        # ✅ EQUIVARIANTE: k-hop loops
-        features_list = []
-        for k in range(2*K - 1):  # k = 0, 1, 2, 3, 4 (si K=3)
-            if k == 0:
-                # S^0 = I → diagonal = [1,1,1,...]
-                loop_k = torch.ones(num_links, 1)
-            else:
-                # S^k: loops cerrados de k-hops
-                S_k = torch.linalg.matrix_power(channel_matrix.float(), k)
-                loop_k = torch.diagonal(S_k).unsqueeze(1)
+        # Generar múltiples samples de ruido para este grafo
+        for _ in range(num_noise_per_graph):
+            # x ~ N(0, I) : ruido Gaussiano estándar
+            x = torch.randn(num_links, 1) 
             
-            features_list.append(loop_k)
-        
-        x = torch.cat(features_list, dim=1).float()  # [6, 5]
-        
-        # x[:, 0] = 1          (constante)
-        # x[:, 1] = h_ii       (ganancia directa)
-        # x[:, 2] = Σh_ij*h_ji (2-hop loops)
-        # x[:, 3] = ...        (3-hop loops)
-        # x[:, 4] = ...        (4-hop loops)
-        
-        # Normalizar
-        norm = torch.linalg.matrix_norm(channel_matrix, ord=2)
-        channel_matrix_norm = channel_matrix / (norm + 1e-12)
-        
-        # Construir grafo
-        edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
-        edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]].float()
-        
-        input_list.append(Data(
-            matrix=channel_matrix,
-            x=x,                    
-            edge_index=edge_index,
-            edge_attr=edge_attr
-        ))
-
-
+            # Normalizar channel matrix para edges
+            norm = np.linalg.norm(channel_matrix, ord=2, axis=(0,1))
+            channel_matrix_norm = channel_matrix / (norm + 1e-12)
+            
+            # Construir grafo
+            edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
+            edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]].float()
+            
+            input_list.append(Data(
+                matrix=channel_matrix,
+                x=x.float(),          
+                edge_index=edge_index,
+                edge_attr=edge_attr
+            ))
+    
     return input_list
+
+
+
+
+
+
+
+
 
 
 

@@ -79,10 +79,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     output_dim = num_channels + 1  # [no_tx, canal_0, canal_1, canal_2, ...]
     
     dropout = True
-
-
-    K_hops = 3  # Parámetro
-    input_dim = 2 * K_hops - 1  # = 5
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
     optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
 
@@ -177,12 +173,12 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         )
 
 
-    file_name = path + 'objective_function_values_train_' + str(epochs) + '.pkl'
-    with open(file_name, 'wb') as archivo:
-        pickle.dump(objective_function_values, archivo)
+    # file_name = path + 'objective_function_values_train_' + str(epochs) + '.pkl'
+    # with open(file_name, 'wb') as archivo:
+    #     pickle.dump(objective_function_values, archivo)
 
-    # save trained gnn weights in .pth
-    torch.save(gnn_model.state_dict(), path + 'gnn_model_weights.pth')
+    # # save trained gnn weights in .pth
+    # torch.save(gnn_model.state_dict(), path + 'gnn_model_weights.pth')
         
 if __name__ == '__main__':
     import argparse
@@ -201,7 +197,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_links', type=int, default=6)
     parser.add_argument('--num_layers', type=int, default=3)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=140)
+    parser.add_argument('--epochs', type=int, default=250)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-5)
     parser.add_argument('--mu_lr', type=float, default=5e-4)

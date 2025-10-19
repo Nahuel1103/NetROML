@@ -1,0 +1,86 @@
+======================================================================
+ANÁLISIS DE POLÍTICA FINAL
+======================================================================
+
+
+Link 0:
+  Acción preferida: Canal 2 (p=0.5999)
+  Distribución completa:
+    No TX   : 0.0001 
+    Canal 0 : 0.3672 ██████████████████
+    Canal 1 : 0.0000 
+    Canal 2 : 0.5999 █████████████████████████████
+    Canal 3 : 0.0000 
+    Canal 4 : 0.0329 █
+    Canal 5 : 0.0000 
+
+Link 1:
+  Acción preferida: Canal 2 (p=0.5787)
+  Distribución completa:
+    No TX   : 0.0000 
+    Canal 0 : 0.3635 ██████████████████
+    Canal 1 : 0.0000 
+    Canal 2 : 0.5787 ████████████████████████████
+    Canal 3 : 0.0000 
+    Canal 4 : 0.0577 ██
+    Canal 5 : 0.0000 
+
+Link 2:
+  Acción preferida: Canal 4 (p=0.9511)
+  Distribución completa:
+    No TX   : 0.0000 
+    Canal 0 : 0.0160 
+    Canal 1 : 0.0000 
+    Canal 2 : 0.0329 █
+    Canal 3 : 0.0000 
+    Canal 4 : 0.9511 ███████████████████████████████████████████████
+    Canal 5 : 0.0000 
+
+Link 3:
+  Acción preferida: No TX (p=0.3297)
+  Distribución completa:
+    No TX   : 0.3297 ████████████████
+    Canal 0 : 0.1979 █████████
+    Canal 1 : 0.0326 █
+    Canal 2 : 0.2616 █████████████
+    Canal 3 : 0.0270 █
+    Canal 4 : 0.1277 ██████
+    Canal 5 : 0.0234 █
+
+Link 4:
+  Acción preferida: No TX (p=0.3297)
+  Distribución completa:
+    No TX   : 0.3297 ████████████████
+    Canal 0 : 0.1979 █████████
+    Canal 1 : 0.0326 █
+    Canal 2 : 0.2616 █████████████
+    Canal 3 : 0.0270 █
+    Canal 4 : 0.1277 ██████
+    Canal 5 : 0.0234 █
+
+Link 5:
+  Acción preferida: No TX (p=0.3297)
+  Distribución completa:
+    No TX   : 0.3297 ████████████████
+    Canal 0 : 0.1979 █████████
+    Canal 1 : 0.0326 █
+    Canal 2 : 0.2616 █████████████
+    Canal 3 : 0.0270 █
+    Canal 4 : 0.1277 ██████
+    Canal 5 : 0.0234 █
+
+----------------------------------------------------------------------
+ANÁLISIS DE CONFLICTOS DE CANAL
+----------------------------------------------------------------------
+  ⚠ Canal 0: Usado por 2 links (INTERFERENCIA)
+      Link 0 (p=0.367)
+      Link 1 (p=0.364)
+  - Canal 1: No usado
+  ⚠ Canal 2: Usado por 2 links (INTERFERENCIA)
+      Link 0 (p=0.600)
+      Link 1 (p=0.579)
+  - Canal 3: No usado
+  ✓ Canal 4: Usado solo por Link 2 (p=0.951)
+  - Canal 5: No usado
+
+======================================================================
