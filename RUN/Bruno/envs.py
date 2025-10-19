@@ -52,7 +52,8 @@ class APNetworkEnv(gym.Env):
 
 
     def __init__(self, n_APs=5, num_channels=3, P0=4, n_power_levels=3, 
-                 power_levels_explicit=None, Pmax=0.7, max_steps=500, alpha=0.3):
+                 power_levels_explicit=None, Pmax=0.7, max_steps=500, 
+                 H_iterator=None, alpha=0.3):
         """
         Inicializa el entorno de red de APs.
 
@@ -82,6 +83,7 @@ class APNetworkEnv(gym.Env):
         self.num_channels = num_channels
         self.max_steps = max_steps
         self.alpha = alpha
+        self.H_iterator = H_iterator
 
         if power_levels_explicit is not None:
             self.power_levels=power_levels_explicit
@@ -144,7 +146,6 @@ class APNetworkEnv(gym.Env):
         # Genero canal inicial y mu inicial
         self.H = self._get_channel_matrix()
         self.mu_power = torch.zeros(self.n_APs, dtype=torch.float32)
-
 
 
         # Estado inicial aleatorio
@@ -298,12 +299,16 @@ class APNetworkEnv(gym.Env):
     
     def _get_channel_matrix(self):
         """
-        Falta terminar, voy a usar un iterador que debo pasar en el init
+        
         """
-        # ESTO NO ES LO QUE QUEREMOS, PERO ES PARA VER SI ANDA AUNQUE SEA DESPUES
-        H = np.random.rayleigh(scale=1.0, size=(self.n_APs, self.n_APs)).astype(np.float32)
-        np.fill_diagonal(H, 1.0)  # Ganancia propia más fuerte
-        return H
+        if self.H_iterator is None:
+            raise ValueError("No hay iterador definido.")
+        try:
+            channel_matrix = next(self.H_iterator)
+        except StopIteration:
+            channel_matrix = None
+            print("Iterador agotado")
+        return channel_matrix
         
 
 
@@ -329,9 +334,9 @@ class APNetworkEnv(gym.Env):
 
     def render(self):
         """
-        Muestra el estado actual del entorno.
+        Muestra el estado actual del entorno en consola.
 
-        Para este entorno, simplemente imprime el estado con canales y potencias de cada AP.
+        Imprime para cada paso la matriz `phi` y la última recompensa obtenida.
         """
         # No es obligatorio, pero útil si se quiere visualizar lo que pasa (debugging o mostrar resultados).
         # Puede ser tan simple como un print o tan complejo como gráficos en tiempo real.
@@ -344,12 +349,11 @@ class APNetworkEnv(gym.Env):
         """
         Cierra el entorno.
 
-        Se usa si se abren recursos externos (ventanas, archivos, conexiones). 
-        En este entorno no hace nada.
+        No realiza ninguna acción en este entorno, presente solo por compatibilidad.
         """
+        
         # Tampoco es obligatorio.
         # Se usa si el entorno abre recursos externos (ventanas gráficas, archivos, conexiones, etc.).
-        # Si no se habre nada, se puede dejarlo como pass.
         pass
 
 
