@@ -312,14 +312,14 @@ class APNetworkEnv(gym.Env):
         
 
 
-    def _update_mu(self, lr=0.01):
+    def _update_mu(self, eps=0.01):
         # ESTO ME LO DIO EL CHAT, ME DIJO QUE ES LA TIPICA.
         # COMPARAR CON LA DEL CHINO
         if len(self.power_history) == 0:
             return self.mu_power
 
         avg_power = np.mean(self.power_history, axis=0)
-        self.mu_power = np.maximum(0.0, self.mu_power + lr * (avg_power - self.Pmax))
+        self.mu_power = np.maximum(0.0, self.mu_power + eps * (avg_power - self.Pmax))
         return self.mu_power
     
 
