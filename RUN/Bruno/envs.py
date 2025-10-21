@@ -51,7 +51,7 @@ class APNetworkEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
 
 
-    def __init__(self, n_APs=5, num_channels=3, P0=4, n_power_levels=3, 
+    def __init__(self, n_APs=4, num_channels=3, P0=4, n_power_levels=3, 
                  power_levels_explicit=None, Pmax=0.7, max_steps=500, 
                  H_iterator=None, alpha=0.3):
         """
@@ -147,6 +147,7 @@ class APNetworkEnv(gym.Env):
         self.H = self._get_channel_matrix()
         self.mu_power = torch.zeros(self.n_APs, dtype=torch.float32)
 
+        self.iterator_exhausted=False
 
         # Estado inicial aleatorio
         self.canales = np.random.randint(1, self.num_channels + 1, size=(self.n_APs, 1)).astype(np.float32)
@@ -192,7 +193,20 @@ class APNetworkEnv(gym.Env):
 
         # Actualizar canal y multiplicadores
         ##### ¿ESTO TENDRIA QUE HACERLO AHORA O AL FINAL?
+        
         self.H = self._get_channel_matrix()
+
+        if self.iterator_exhausted:
+            terminated = True
+            truncated = False
+            reward = 0.0
+            info = {"reason": "iterator_exhausted"}
+            obs = {
+                "H": -np.ones((self.n_APs, self.n_APs), dtype=np.float32),
+                "mu": self.mu_power if isinstance(self.mu_power, np.ndarray) else self.mu_power.detach().cpu().numpy()
+            }
+            return obs, reward, terminated, truncated, info
+        
         ##### el mu se actualiza asi o lo hace la red?
         self.mu_power = self._update_mu()
 
@@ -297,19 +311,41 @@ class APNetworkEnv(gym.Env):
 
     
     
-    def _get_channel_matrix(self):
-        """
+    # def _get_channel_matrix(self):
+    #     """
         
-        """
+    #     """
+    #     if self.H_iterator is None:
+    #         raise ValueError("No hay iterador definido.")
+    #     try:
+    #         channel_matrix = next(self.H_iterator).astype(np.float32)
+    #     except StopIteration:
+    #         channel_matrix = None
+    #         print("Iterador agotado")
+    #     return channel_matrix
+
+
+    def _get_channel_matrix(self):
         if self.H_iterator is None:
             raise ValueError("No hay iterador definido.")
         try:
-            channel_matrix = next(self.H_iterator)
+            channel_matrix = next(self.H_iterator).astype(np.float32)
         except StopIteration:
-            channel_matrix = None
-            print("Iterador agotado")
+            # Opcional: devolver matriz de -1 y dejar que el step() termine el episodio
+            channel_matrix = -np.ones((self.n_APs, self.n_APs), dtype=np.float32)
+            # También podés setear un flag interno si querés terminar el episodio
+            self.iterator_exhausted = True
         return channel_matrix
-        
+    
+
+
+    # def _get_channel_matrix(self):
+    #     if self.H_iterator is None:
+    #         raise ValueError("No hay iterador definido.")
+    #     # Aquí no atrapamos StopIteration
+    #     channel_matrix = next(self.H_iterator).astype(np.float32)
+    #     return channel_matrix
+
 
 
     def _update_mu(self, eps=0.01):
@@ -323,14 +359,59 @@ class APNetworkEnv(gym.Env):
         return self.mu_power
     
 
+
     def _get_rates(self, phi, sigma):
         """
-        Acá iria el nuevo get rates adaptado sin batch
+        Calcula las tasas (rates) para el estado actual del entorno (sin batch).
+
+        Parámetros
+        ----------
+        phi : torch.Tensor, shape (n_APs, num_channels)
+            Potencia transmitida por cada AP en cada canal.
+        sigma : float
+            Ruido térmico o ruido de fondo.
+        
+        Returns
+        -------
+        rates : torch.Tensor, shape (n_APs,)
+            Tasa de transmisión por AP.
         """
-        H=self.H
-        P0=self.P0
-        alpha=self.alpha
-        return torch.tensor([5.0, 5.0]) # solo para que compile
+        H = torch.tensor(self.H, dtype=torch.float32)          # [n_APs, n_APs]
+        sigma = torch.tensor(sigma, dtype=torch.float32)
+        P0 = self.P0
+        alpha = self.alpha
+
+        n_APs, num_channels = phi.shape
+
+        # Señal útil: potencia recibida de su propio canal
+        diagH = torch.diagonal(H, dim1=0, dim2=1)              # [n_APs]
+        signal = diagH.unsqueeze(-1) * phi                     # [n_APs, num_channels]
+
+        # Interferencia intra-canal (misma frecuencia)
+        interf_same = torch.matmul(H, phi) - signal            # [n_APs, num_channels]
+
+        # Interferencia por canales solapados
+        interf_overlap = torch.zeros_like(interf_same)
+        for c in range(num_channels):
+            if c > 0:
+                interf_overlap[:, c] += torch.matmul(H, phi[:, c-1])
+            if c < num_channels - 1:
+                interf_overlap[:, c] += torch.matmul(H, phi[:, c+1])
+        interf_overlap *= alpha
+
+        # Denominador total
+        denom = sigma + interf_same + interf_overlap
+
+        # SINR
+        snr = signal / denom
+
+        # Tasa Shannon (log(1 + SINR))
+        rates = torch.sum(torch.log1p(snr), dim=-1)            # [n_APs]
+
+        return rates
+
+    
+
 
     def render(self):
         """
