@@ -2,11 +2,6 @@
 
 Herramientas para procesar datos de redes inalámbricas, generar grafos y analizar coeficientes de canal. Diseñado para datos del Plan Ceibal.
 
-> **⚠️ Importante 1:** Los datos_ceibal y la carpeta graphs no son parte del repositorio pero se incluyen con la siguiente estructura a modo de ejemplo.
----
-
-> **⚠️ Importante 2:** Para mayor orden se sugiere sacar los scripts que hay en la carpeta graphs a una carpeta `preprocesamiento` y agregar el archivo `utils.py` a esa carpeta
---- 
 
 ---
 
