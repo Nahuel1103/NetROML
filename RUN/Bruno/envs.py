@@ -207,8 +207,6 @@ class APNetworkEnv(gym.Env):
             }
             return obs, reward, terminated, truncated, info
         
-        ##### el mu se actualiza asi o lo hace la red?
-        self.mu_power = self._update_mu()
 
         # Inicializamos estado nuevo con ceros
         new_state = np.zeros((self.n_APs, 2), dtype=np.float32)
@@ -249,6 +247,8 @@ class APNetworkEnv(gym.Env):
 
         reward = self._compute_reward(phi)
         
+        self.mu_power = self._update_mu()
+
 
         # terminated se usaría si, cumplida una condición, debe empezar el siguiente paso reseteando el state.
         terminated = False
@@ -309,20 +309,7 @@ class APNetworkEnv(gym.Env):
 
         return float(reward.item())
 
-    
-    
-    # def _get_channel_matrix(self):
-    #     """
-        
-    #     """
-    #     if self.H_iterator is None:
-    #         raise ValueError("No hay iterador definido.")
-    #     try:
-    #         channel_matrix = next(self.H_iterator).astype(np.float32)
-    #     except StopIteration:
-    #         channel_matrix = None
-    #         print("Iterador agotado")
-    #     return channel_matrix
+
 
 
     def _get_channel_matrix(self):
@@ -331,20 +318,11 @@ class APNetworkEnv(gym.Env):
         try:
             channel_matrix = next(self.H_iterator).astype(np.float32)
         except StopIteration:
-            # Opcional: devolver matriz de -1 y dejar que el step() termine el episodio
+            # Devuelvo matriz de -1
             channel_matrix = -np.ones((self.n_APs, self.n_APs), dtype=np.float32)
-            # También podés setear un flag interno si querés terminar el episodio
+            # flag para avisar a step() que termine el episodio.
             self.iterator_exhausted = True
         return channel_matrix
-    
-
-
-    # def _get_channel_matrix(self):
-    #     if self.H_iterator is None:
-    #         raise ValueError("No hay iterador definido.")
-    #     # Aquí no atrapamos StopIteration
-    #     channel_matrix = next(self.H_iterator).astype(np.float32)
-    #     return channel_matrix
 
 
 
