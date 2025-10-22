@@ -1,6 +1,5 @@
 """
-Integración de GNNPolicy con Stable-Baselines3
-Adapta tu arquitectura TAGConv existente para trabajar con PPO
+Integración de GNN con Stable-Baselines3
 """
 
 import torch
@@ -10,7 +9,6 @@ from torch_geometric.nn import TAGConv
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from gymnasium import spaces
-import numpy as np
 
 
 #######################################################
@@ -18,11 +16,12 @@ import numpy as np
 #######################################################
 class GNNPolicy(torch.nn.Module):
     """
-    Tu arquitectura GNN original con TAGConv.
-    Ahora adaptada para extraer features en lugar de predecir acciones directamente.
+    Extrae features de la red.
     """
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout, K=1):
+
         super(GNNPolicy, self).__init__()
+
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
         self.dropout = dropout
@@ -60,6 +59,7 @@ class GNNPolicy(torch.nn.Module):
         self.initialize_weights()
 
     def initialize_weights(self):
+
         for name, param in self.convs.named_parameters():
             if 'weight' in name:
                 nn.init.normal_(param.data, mean=0.0, std=0.1)
@@ -67,17 +67,7 @@ class GNNPolicy(torch.nn.Module):
                 nn.init.constant_(param.data, 0.1)
 
     def forward(self, x, edge_index, edge_attr):
-        """
-        Forward pass a través de las capas TAGConv.
-        
-        Args:
-            x: [num_nodes, input_dim] - Features de nodos
-            edge_index: [2, num_edges] - Conectividad
-            edge_attr: [num_edges] - Pesos de aristas
-        
-        Returns:
-            h: [num_nodes, output_dim] - Embeddings de nodos
-        """
+
         h = x
         for i in range(self.num_layers):
             h = self.convs[i](x=h, edge_index=edge_index, edge_weight=edge_attr)
