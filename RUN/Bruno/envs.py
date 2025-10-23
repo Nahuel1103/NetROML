@@ -400,7 +400,7 @@ class APNetworkEnv(gym.Env):
         # No es obligatorio, pero útil si se quiere visualizar lo que pasa (debugging o mostrar resultados).
         # Puede ser tan simple como un print o tan complejo como gráficos en tiempo real.
         # Si no lo necesitamos, podemos dejarlo vacío o no implementarlo.
-        print(f"Step {self.current_step} | Decisión:\n{self.last_phi} | reward: {self.last_reward}")
+        print(f"Step {self.current_step} \n Decisión:\n{self.last_phi} \n reward: {self.last_reward}")
 
 
 

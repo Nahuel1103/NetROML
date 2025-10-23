@@ -12,25 +12,29 @@ H_iter = iter(H_random_list)  # iterador compartido
 
 
 # Creo el entorno (el nuestro custom)
-env = APNetworkEnv(n_APs=n_APs, H_iterator=H_iter)
+env = APNetworkEnv(n_APs=n_APs, H_iterator=H_iter, max_steps=10000)
 
 
 # Creo el agente
 agent = PPO("MultiInputPolicy", env, verbose=1)
 
 # Entrenar un poquito (timesteps bajos solo para test)
-agent.learn(total_timesteps=1)
+agent.learn(total_timesteps=1000)
+
+
+
+
 
 # Probar agente entrenado
 obs, _ = env.reset()
 print("Estado inicial:", obs)
 
-for step in range(10000):
+for step in range(10):
     action, _ = agent.predict(obs, deterministic=True)
     obs, reward, terminated, truncated, _ = env.step(action)
     print(f"\nStep {step+1}")
     print("Acción elegida:", action)
-    print("Nuevo estado:", obs)
+    print("Nuevo estado:\n", "H:\n", obs[list(obs.keys())[0]], "\nMus:", obs[list(obs.keys())[1]])
     print("Reward:", reward)
     if terminated or truncated:
         break
