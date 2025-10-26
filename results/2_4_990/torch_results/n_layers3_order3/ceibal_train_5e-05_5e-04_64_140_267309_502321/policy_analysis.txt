@@ -1,0 +1,70 @@
+======================================================================
+ANÁLISIS DE POLÍTICA FINAL
+======================================================================
+
+
+Link 0:
+  Acción preferida: Canal 2 (p=0.3464)
+  Distribución completa:
+    No TX   : 0.0000 
+    Canal 0 : 0.3129 ███████████████
+    Canal 1 : 0.3407 █████████████████
+    Canal 2 : 0.3464 █████████████████
+
+Link 1:
+  Acción preferida: Canal 2 (p=0.3483)
+  Distribución completa:
+    No TX   : 0.0000 
+    Canal 0 : 0.3173 ███████████████
+    Canal 1 : 0.3343 ████████████████
+    Canal 2 : 0.3483 █████████████████
+
+Link 2:
+  Acción preferida: Canal 2 (p=0.3465)
+  Distribución completa:
+    No TX   : 0.0000 
+    Canal 0 : 0.3117 ███████████████
+    Canal 1 : 0.3418 █████████████████
+    Canal 2 : 0.3465 █████████████████
+
+Link 3:
+  Acción preferida: No TX (p=0.9711)
+  Distribución completa:
+    No TX   : 0.9711 ████████████████████████████████████████████████
+    Canal 0 : 0.0118 
+    Canal 1 : 0.0071 
+    Canal 2 : 0.0101 
+
+Link 4:
+  Acción preferida: No TX (p=0.9711)
+  Distribución completa:
+    No TX   : 0.9711 ████████████████████████████████████████████████
+    Canal 0 : 0.0118 
+    Canal 1 : 0.0071 
+    Canal 2 : 0.0101 
+
+Link 5:
+  Acción preferida: No TX (p=0.9711)
+  Distribución completa:
+    No TX   : 0.9711 ████████████████████████████████████████████████
+    Canal 0 : 0.0118 
+    Canal 1 : 0.0071 
+    Canal 2 : 0.0101 
+
+----------------------------------------------------------------------
+ANÁLISIS DE CONFLICTOS DE CANAL
+----------------------------------------------------------------------
+  ⚠ Canal 0: Usado por 3 links (INTERFERENCIA)
+      Link 0 (p=0.313)
+      Link 1 (p=0.317)
+      Link 2 (p=0.312)
+  ⚠ Canal 1: Usado por 3 links (INTERFERENCIA)
+      Link 0 (p=0.341)
+      Link 1 (p=0.334)
+      Link 2 (p=0.342)
+  ⚠ Canal 2: Usado por 3 links (INTERFERENCIA)
+      Link 0 (p=0.346)
+      Link 1 (p=0.348)
+      Link 2 (p=0.346)
+
+======================================================================

@@ -18,6 +18,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.nn import TAGConv
 from torch_geometric.nn import GCNConv
 import matplotlib.pyplot as plt
+import os
 
 import scipy.io
 
@@ -110,7 +111,9 @@ def transform_matrix(adj_matrix, all = True):
 def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, building_id=990):
     
     band = ['2_4', '5']
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/PP/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    GRAPH_ROOT = os.path.join(BASE_DIR, '../..', 'graphs')
+    path = os.path.join(GRAPH_ROOT, f'{band[b5g]}_{building_id}')
 
     if (train):
         file_name = 'train_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
@@ -137,16 +140,18 @@ def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, buildin
     return x_tensor, channel_matrix_tensor
 
 
-def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, building_id = 990):
+def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/PP/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    GRAPH_ROOT = os.path.join(BASE_DIR, '../..', 'graphs')
+    path = os.path.join(GRAPH_ROOT, f'{band[b5g]}_{building_id}')
     file_name = 'synthetic_graphs.pkl'
-    with open(path + file_name, 'rb') as archivo:
+    with open(os.path.join(path, file_name), 'rb') as archivo:
         graphs = pickle.load(archivo)
     x_list = []
     channel_matrix_list = []
-    x = torch.zeros((num_channels,num_features)) 
+    x = torch.zeros((num_links,num_features)) 
     for graph in graphs:
         channel_matrix_list.append(torch.tensor(graph))
         x_list.append(x)
@@ -154,19 +159,106 @@ def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, buil
     x_tensor = torch.stack(x_list)
     return x_tensor, channel_matrix_tensor
 
-def get_gnn_inputs(x_tensor, channel_matrix_tensor):
+
+def graphs_to_tensor_sc(num_links, num_features = 1, b5g = False, building_id = 990):
+    
+    band = ['2_4', '5']
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    GRAPH_ROOT = os.path.join(BASE_DIR, '..', 'graphs')
+    path = os.path.join(GRAPH_ROOT, f'{band[b5g]}_{building_id}')
+    file_name = 'sc_graphs.pkl'
+    with open(os.path.join(path, file_name), 'rb') as archivo:
+        graphs = pickle.load(archivo)
+    x_list = []
+    channel_matrix_list = []
+    x = torch.zeros((num_links,num_features)) 
+    for graph in graphs:
+        channel_matrix_list.append(torch.tensor(graph))
+        x_list.append(x)
+    channel_matrix_tensor = torch.stack(channel_matrix_list)
+    x_tensor = torch.stack(x_list)
+    return x_tensor, channel_matrix_tensor
+
+
+
+
+# def get_gnn_inputs(x_tensor, channel_matrix_tensor):
+#     input_list = []
+#     size = channel_matrix_tensor.shape[0]
+#     for i in range(size):
+#         x = x_tensor[i,:,:]
+#         channel_matrix = channel_matrix_tensor[i,:,:]
+#         norm = np.linalg.norm(channel_matrix, ord = 2, axis = (0,1))
+#         channel_matrix_norm = channel_matrix / norm
+#         channel_matrix_norm = channel_matrix
+#         edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
+#         edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]]
+#         edge_attr = edge_attr.to(torch.float)
+#         input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
+#     return input_list
+
+
+# def get_gnn_inputs(x_tensor, channel_matrix_tensor):
+#     input_list = []
+#     size = channel_matrix_tensor.shape[0]
+#     num_links = x_tensor.shape[1]
+    
+#     for i in range(size):
+#         channel_matrix = channel_matrix_tensor[i,:,:]
+        
+#         # Features: [one-hot ID, canal directo]
+#         node_id = torch.eye(num_links)  # [3, 3]
+#         diag = torch.diagonal(channel_matrix).unsqueeze(1)  # [3, 1]
+#         x = torch.cat([node_id, diag], dim=1).float()  
+        
+#         norm = np.linalg.norm(channel_matrix, ord = 2, axis = (0,1))
+#         channel_matrix_norm = channel_matrix / norm
+#         edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
+#         edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]].float()  # Y ACÁ
+        
+#         input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
+#     return input_list
+
+
+def get_gnn_inputs(x_tensor, channel_matrix_tensor, num_noise_samples=10):
+    """
+    Genera grafos. Cada grafo se procesará con múltiples muestras de ruido.
+    
+    Args:
+        x_tensor: No se usa
+        channel_matrix_tensor: [num_graphs, num_links, num_links]
+        num_noise_samples: Número de samples de ruido (para calcular E[·])
+    
+    Returns:
+        Lista de objetos Data (uno por grafo original)
+    """
     input_list = []
-    size = channel_matrix_tensor.shape[0]
-    for i in range(size):
-        x = x_tensor[i,:,:]
-        channel_matrix = channel_matrix_tensor[i,:,:]
-        norm = np.linalg.norm(channel_matrix, ord = 2, axis = (0,1))
-        channel_matrix_norm = channel_matrix / norm
-        channel_matrix_norm = channel_matrix
+    num_graphs = channel_matrix_tensor.shape[0]
+    num_links = channel_matrix_tensor.shape[1]
+    
+    for i in range(num_graphs):
+        channel_matrix = channel_matrix_tensor[i, :, :]
+        
+        # Normalizar channel matrix
+        norm = torch.linalg.norm(channel_matrix, ord=2)
+        channel_matrix_norm = channel_matrix / (norm + 1e-12)
+        
+        # Construir estructura del grafo
         edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
-        edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]]
-        edge_attr = edge_attr.to(torch.float)
-        input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
+        edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]].float()
+        
+        # Generar MÚLTIPLES muestras de ruido para este grafo
+        # Forma: [num_noise_samples, num_links, 1]
+        x_noise_samples = torch.randn(num_noise_samples, num_links, 1)
+        
+        input_list.append(Data(
+            matrix=channel_matrix,
+            x=x_noise_samples.float(),  # Múltiples ruidos
+            edge_index=edge_index,
+            edge_attr=edge_attr,
+            num_nodes=num_links  # Añadir num_nodes explícitamente
+        ))
+    
     return input_list
 
 def objective_function(rates):
@@ -195,63 +287,31 @@ def get_rates(phi, channel_matrix_batch, sigma):
     return rates
 
 
-# Versión 1 y 2
-# def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
-#     batch_size, num_links, num_channels = phi.shape
 
-#     # Señal útil
-#     diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
-#     signal = diagH.unsqueeze(-1) * phi
-
-#     # Interferencia intra-canal
-#     interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
-
-#     denom = sigma + interf_same
+def nuevo_get_rates(phi, H, sigma, eps=1e-12,p0=None):
+    """
+    TU VERSIÓN (del paper):
+    Interferencia modulada por p_mc/p0
     
-#     snr = signal / (denom + eps)
-
-#     # Tasa por enlace
-#     rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
-#     return rates
-
-
-
-# # Versión 3
-def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
-    """Versión corregida de nuevo_get_rates"""
+    Interpretación: "Rate efectivo considerando contención"
+    """
     batch_size, num_links, num_channels = phi.shape
-
-    # Señal útil
-    diagH = torch.diagonal(channel_matrix_batch, dim1=1, dim2=2)
-    signal = diagH.unsqueeze(-1) * phi
-
-    # Interferencia intra-canal
-    interf_same = torch.einsum('bij,bjc->bic', channel_matrix_batch.float(), phi.float()) - signal
-
-    # Interferencia por canales solapados
-    interf_overlap = torch.zeros_like(interf_same)
-    if num_channels > 1:
-        left_shift = torch.roll(phi, shifts=1, dims=2)
-        right_shift = torch.roll(phi, shifts=-1, dims=2)
-        interf_overlap = alpha * (left_shift + right_shift)
-    interf_overlap *= alpha
-
-    denom = sigma + interf_same + interf_overlap
     
-    snr = signal / (denom + eps)
-
-    for c in range(num_channels):
-        p_ch = phi[:, :, c]
-        recv_power = channel_matrix_batch * p_ch.unsqueeze(1)
-        
-        tx_active = p_ch > eps
-        seen = (recv_power >= p_rx_threshold) & (tx_active.unsqueeze(1))
-        seen_count = seen.sum(dim=-1) 
-        
-        invalid = seen_count >= 2
-        
-        snr[:, :, c] = snr[:, :, c] * (~invalid).float()  
-
-    # Tasa por enlace
-    rates = torch.log1p(torch.sum(snr, dim=-1))  # [batch, links]
+    diagH = torch.diagonal(H, dim1=1, dim2=2)  # [batch, num_links]
+    signal = diagH.unsqueeze(-1) * phi  # [batch, num_links, num_channels]
+    
+    # Coupling factor: p_mc / p0
+    coupling_factor = phi / (p0 + eps)
+    
+    # Interferencia base
+    interference_base = torch.einsum('bij,bjc->bic', H.float(), phi.float())
+    interference_base = interference_base - signal
+    
+    # Modular por coupling
+    interference_modulated = interference_base * coupling_factor
+    
+    # SINR y rate
+    sinr = signal / (sigma + interference_modulated + eps)
+    rates = torch.log1p(torch.sum(sinr, dim=-1))
+    
     return rates
