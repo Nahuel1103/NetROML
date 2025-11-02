@@ -12,7 +12,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 from envs import APNetworkEnv
-from custom_policy import GNNActorCriticPolicy
+from gnn_policy_No_Batches import GNNActorCriticPolicy
 
 
 class PowerConstraintCallback(BaseCallback):

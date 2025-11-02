@@ -9,6 +9,8 @@ from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from torch_geometric.data import Data
 import numpy as np
+from gnn import GNN
+
 
 # Importa tu GNN
 # from gnn import GNN
@@ -33,25 +35,24 @@ class GNNFeaturesExtractor(BaseFeaturesExtractor):
         self.n_APs = n_APs
         
         # OPCIÓN A: Usa tu GNN real (descomenta cuando lo integres)
-        # from gnn import GNN
-        # self.gnn = GNN(
-        #     input_dim=2,  # [1 por node feature base + mu como feature adicional]
-        #     hidden_dim=gnn_hidden_dim, 
-        #     output_dim=features_dim // n_APs,  # output por nodo
-        #     num_layers=gnn_num_layers,
-        #     dropout=False,
-        #     K=K
-        # )
+        self.gnn = GNN(
+            input_dim=2,  # [1 por node feature base + mu como feature adicional]
+            hidden_dim=gnn_hidden_dim, 
+            output_dim=features_dim // n_APs,  # output por nodo
+            num_layers=gnn_num_layers,
+            dropout=False,
+            K=K
+        )
         
         # OPCIÓN B: Placeholder MLP simple
         # Concatena H aplanado + mu y lo pasa por capas fully connected
-        input_size = n_APs * n_APs + n_APs  # H aplanado + mu
-        self.feature_net = nn.Sequential(
-            nn.Linear(input_size, 128),
-            nn.ReLU(),
-            nn.Linear(128, features_dim),
-            nn.ReLU()
-        )
+        # input_size = n_APs * n_APs + n_APs  # H aplanado + mu
+        # self.feature_net = nn.Sequential(
+        #     nn.Linear(input_size, 128),
+        #     nn.ReLU(),
+        #     nn.Linear(128, features_dim),
+        #     nn.ReLU()
+        # )
         
     def forward(self, observations: dict) -> torch.Tensor:
         """
@@ -82,31 +83,33 @@ class GNNFeaturesExtractor(BaseFeaturesExtractor):
         # ============================================
         # OPCIÓN A: Usar tu GNN con torch_geometric
         # ============================================
-        # features_list = []
-        # for i in range(batch_size):
-        #     # Crear node features: concatenar mu como feature de cada nodo
-        #     x = torch.ones(self.n_APs, 1, device=H.device)  # base feature
-        #     x = torch.cat([x, mu[i].unsqueeze(-1)], dim=1)  # [n_APs, 2]
-        #     
-        #     # Crear estructura de grafo desde H
-        #     edge_index = H[i].nonzero(as_tuple=False).t()  # [2, num_edges]
-        #     edge_attr = H[i][edge_index[0], edge_index[1]].unsqueeze(-1)  # [num_edges, 1]
-        #     
-        #     # Forward pass por GNN
-        #     gnn_out = self.gnn(x, edge_index, edge_attr)  # [n_APs, hidden_dim]
-        #     
-        #     # Agregar features de todos los nodos
-        #     features = gnn_out.flatten()  # [n_APs * hidden_dim]
-        #     features_list.append(features)
-        # 
-        # features = torch.stack(features_list)  # [batch, features_dim]
+        features_list = []
+        for i in range(batch_size):
+            # Crear node features: concatenar mu como feature de cada nodo
+            x = torch.ones(self.n_APs, 1, device=H.device)  # base feature
+            x = torch.cat([x, mu[i].unsqueeze(-1)], dim=1)  # [n_APs, 2]
+            
+            # Crear estructura de grafo desde H
+            edge_index = H[i].nonzero(as_tuple=False).t()  # [2, num_edges]
+            edge_attr = H[i][edge_index[0], edge_index[1]].unsqueeze(-1)  # [num_edges, 1]
+            
+            # Forward pass por GNN
+            gnn_out = self.gnn(x, edge_index, edge_attr)  # [n_APs, hidden_dim]
+            
+            # Agregar features de todos los nodos
+            features = gnn_out.flatten()  # [n_APs * hidden_dim]
+            features_list.append(features)
+        
+        features = torch.stack(features_list)  # [batch, features_dim]
+
         
         # ============================================
         # OPCIÓN B: MLP simple (placeholder)
         # ============================================
-        H_flat = H.reshape(batch_size, -1)  # [batch, n_APs * n_APs]
-        combined = torch.cat([H_flat, mu], dim=1)  # [batch, n_APs*n_APs + n_APs]
-        features = self.feature_net(combined)  # [batch, features_dim]
+        # H_flat = H.reshape(batch_size, -1)  # [batch, n_APs * n_APs]
+        # combined = torch.cat([H_flat, mu], dim=1)  # [batch, n_APs*n_APs + n_APs]
+        # features = self.feature_net(combined)  # [batch, features_dim]
+        
         
         # Si no había batch dimension originalmente, removerla
         if not has_batch:
