@@ -4,58 +4,58 @@ ANÁLISIS DE POLÍTICA FINAL
 
 
 Link 0:
-  Acción preferida: Canal 0 (p=0.8182)
+  Acción preferida: No TX (p=0.2864)
   Distribución completa:
-    No TX   : 0.0943 ████
-    Canal 0 : 0.8182 ████████████████████████████████████████
-    Canal 1 : 0.0303 █
-    Canal 2 : 0.0572 ██
+    No TX   : 0.2864 ██████████████
+    Canal 0 : 0.2405 ████████████
+    Canal 1 : 0.2402 ████████████
+    Canal 2 : 0.2329 ███████████
 
 Link 1:
-  Acción preferida: Canal 2 (p=0.8344)
+  Acción preferida: No TX (p=0.3062)
   Distribución completa:
-    No TX   : 0.0309 █
-    Canal 0 : 0.1049 █████
-    Canal 1 : 0.0298 █
-    Canal 2 : 0.8344 █████████████████████████████████████████
+    No TX   : 0.3062 ███████████████
+    Canal 0 : 0.2347 ███████████
+    Canal 1 : 0.2341 ███████████
+    Canal 2 : 0.2250 ███████████
 
 Link 2:
-  Acción preferida: Canal 1 (p=0.9814)
+  Acción preferida: No TX (p=0.3686)
   Distribución completa:
-    No TX   : 0.0001 
-    Canal 0 : 0.0155 
-    Canal 1 : 0.9814 █████████████████████████████████████████████████
-    Canal 2 : 0.0030 
+    No TX   : 0.3686 ██████████████████
+    Canal 0 : 0.2152 ██████████
+    Canal 1 : 0.2142 ██████████
+    Canal 2 : 0.2020 ██████████
 
 Link 3:
-  Acción preferida: No TX (p=1.0000)
+  Acción preferida: No TX (p=0.8398)
   Distribución completa:
-    No TX   : 1.0000 ██████████████████████████████████████████████████
-    Canal 0 : 0.0000 
-    Canal 1 : 0.0000 
-    Canal 2 : 0.0000 
+    No TX   : 0.8398 █████████████████████████████████████████
+    Canal 0 : 0.0534 ██
+    Canal 1 : 0.0535 ██
+    Canal 2 : 0.0533 ██
 
 Link 4:
-  Acción preferida: No TX (p=1.0000)
+  Acción preferida: No TX (p=0.8399)
   Distribución completa:
-    No TX   : 1.0000 ██████████████████████████████████████████████████
-    Canal 0 : 0.0000 
-    Canal 1 : 0.0000 
-    Canal 2 : 0.0000 
+    No TX   : 0.8399 █████████████████████████████████████████
+    Canal 0 : 0.0533 ██
+    Canal 1 : 0.0535 ██
+    Canal 2 : 0.0533 ██
 
 Link 5:
-  Acción preferida: No TX (p=1.0000)
+  Acción preferida: No TX (p=0.8388)
   Distribución completa:
-    No TX   : 1.0000 ██████████████████████████████████████████████████
-    Canal 0 : 0.0000 
-    Canal 1 : 0.0000 
-    Canal 2 : 0.0000 
+    No TX   : 0.8388 █████████████████████████████████████████
+    Canal 0 : 0.0537 ██
+    Canal 1 : 0.0539 ██
+    Canal 2 : 0.0537 ██
 
 ----------------------------------------------------------------------
 ANÁLISIS DE CONFLICTOS DE CANAL
 ----------------------------------------------------------------------
-  ✓ Canal 0: Usado solo por Link 0 (p=0.818)
-  ✓ Canal 1: Usado solo por Link 2 (p=0.981)
-  ✓ Canal 2: Usado solo por Link 1 (p=0.834)
+  - Canal 0: No usado
+  - Canal 1: No usado
+  - Canal 2: No usado
 
 ======================================================================

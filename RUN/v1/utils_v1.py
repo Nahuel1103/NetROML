@@ -180,87 +180,46 @@ def graphs_to_tensor_sc(num_links, num_features = 1, b5g = False, building_id = 
     return x_tensor, channel_matrix_tensor
 
 
-
-
-# def get_gnn_inputs(x_tensor, channel_matrix_tensor):
-#     input_list = []
-#     size = channel_matrix_tensor.shape[0]
-#     for i in range(size):
-#         x = x_tensor[i,:,:]
-#         channel_matrix = channel_matrix_tensor[i,:,:]
-#         norm = np.linalg.norm(channel_matrix, ord = 2, axis = (0,1))
-#         channel_matrix_norm = channel_matrix / norm
-#         channel_matrix_norm = channel_matrix
-#         edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
-#         edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]]
-#         edge_attr = edge_attr.to(torch.float)
-#         input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
-#     return input_list
-
-
-# def get_gnn_inputs(x_tensor, channel_matrix_tensor):
-#     input_list = []
-#     size = channel_matrix_tensor.shape[0]
-#     num_links = x_tensor.shape[1]
-    
-#     for i in range(size):
-#         channel_matrix = channel_matrix_tensor[i,:,:]
-        
-#         # Features: [one-hot ID, canal directo]
-#         node_id = torch.eye(num_links)  # [3, 3]
-#         diag = torch.diagonal(channel_matrix).unsqueeze(1)  # [3, 1]
-#         x = torch.cat([node_id, diag], dim=1).float()  
-        
-#         norm = np.linalg.norm(channel_matrix, ord = 2, axis = (0,1))
-#         channel_matrix_norm = channel_matrix / norm
-#         edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
-#         edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]].float()  # Y ACÁ
-        
-#         input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
-#     return input_list
-
-
-def get_gnn_inputs(x_tensor, channel_matrix_tensor, num_noise_per_graph=5):
+def get_gnn_inputs(x_tensor, channel_matrix_tensor, num_noise_per_graph=10):
     """
-    Función creadora de todos los grafos.
+    MODIFICADO: Ahora genera múltiples samples de ruido blanco por grafo.
+    Implementa la estrategia del paper para mayor expresividad.
+    
+    Args:
+        x_tensor: no usado, solo para compatibilidad
+        channel_matrix_tensor: [num_graphs, num_links, num_links]
+        num_noise_per_graph: número de realizaciones de ruido por grafo
     """
     input_list = []
     size = channel_matrix_tensor.shape[0]
-    num_links = x_tensor.shape[1]
+    num_links = channel_matrix_tensor.shape[1]
     
     for i in range(size):
         channel_matrix = channel_matrix_tensor[i, :, :]
         
-        # Generar múltiples samples de ruido para este grafo
-        for _ in range(num_noise_per_graph):
+        # Normalizar channel matrix
+        norm = np.linalg.norm(channel_matrix, ord=2, axis=(0,1))
+        channel_matrix_norm = channel_matrix / (norm + 1e-12)
+        
+        # Construir edge_index y edge_attr (igual para todos los samples)
+        edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
+        edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]].float()
+        
+        # Generar múltiples samples de ruido blanco para este grafo
+        for sample_idx in range(num_noise_per_graph):
             # x ~ N(0, I) : ruido Gaussiano estándar
             x = torch.randn(num_links, 1) 
-            
-            # Normalizar channel matrix para edges
-            norm = np.linalg.norm(channel_matrix, ord=2, axis=(0,1))
-            channel_matrix_norm = channel_matrix / (norm + 1e-12)
-            
-            # Construir grafo
-            edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
-            edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]].float()
             
             input_list.append(Data(
                 matrix=channel_matrix,
                 x=x.float(),          
                 edge_index=edge_index,
-                edge_attr=edge_attr
+                edge_attr=edge_attr,
+                graph_id=i,  # Para tracking
+                sample_id=sample_idx
             ))
     
     return input_list
-
-
-
-
-
-
-
-
-
 
 
 
@@ -288,8 +247,6 @@ def get_rates(phi, channel_matrix_batch, sigma):
     denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator + sigma
     rates = torch.log(numerator / denominator + 1)
     return rates
-
-
 
 def nuevo_get_rates(phi, H, sigma, eps=1e-12,p0=None):
     """

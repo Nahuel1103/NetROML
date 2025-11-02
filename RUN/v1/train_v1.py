@@ -37,34 +37,35 @@ from utils_v1 import graphs_to_tensor_sc
 
 def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K=3,
         batch_size=64, epochs=100, eps=5e-5, mu_lr=5e-4, synthetic=1, rn=100, rn1=100,
-         sigma=1e-4,max_antenna_power_dbm=6, sanitycheck=True):   
+         sigma=1e-4,max_antenna_power_dbm=6, sanitycheck=True, num_noise_per_graph=10):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
     mu_lr_str = str(f"{mu_lr:.0e}")
 
+    # Cargar datos
     if synthetic:
         if sanitycheck:
             x_tensor, channel_matrix_tensor = graphs_to_tensor_sc(
                 num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
             )
-            dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
-            dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
-
         else:
             x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
                 num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
             )
-            dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
-            dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
     else:
         x_tensor, channel_matrix_tensor = graphs_to_tensor(
             train=True, num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
         )
-        dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 
-
+    # MODIFICADO: Ahora get_gnn_inputs genera múltiples samples de ruido por grafo
+    dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor, 
+                            num_noise_per_graph=num_noise_per_graph)
+    
+    # El batch_size efectivo se multiplica por num_noise_per_graph
+    effective_batch_size = batch_size * num_noise_per_graph
+    dataloader = DataLoader(dataset[:7000], batch_size=effective_batch_size, 
+                           shuffle=True, drop_last=True)
 
     max_antenna_power_mw = 10 ** (max_antenna_power_dbm / 10)
     pmax_per_ap = max_antenna_power_mw*0.8* torch.ones((num_links,))
@@ -72,8 +73,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
     # ---- Definición de red ----
     input_dim = 1
-    hidden_dim = 1
-
+    hidden_dim = 1  # Puedes ajustarlo
 
     # Eliminar niveles de potencia, solo selección categórica de canales
     output_dim = num_channels + 1  # [no_tx, canal_0, canal_1, canal_2, ...]
@@ -94,19 +94,40 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         print("Epoch number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
 
-            channel_matrix_batch = data.matrix
-            channel_matrix_batch = channel_matrix_batch.view(batch_size, num_links, num_links) 
-
-            if epoc == 1 and batch_idx == 1:
-                print(channel_matrix_batch)
+            # Obtener channel matrices (cada grafo aparece num_noise_per_graph veces)
+            channel_matrix_all = data.matrix
+            channel_matrix_all = channel_matrix_all.view(effective_batch_size, num_links, num_links) 
             
-            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr) 
-            psi = psi.view(batch_size, num_links, num_channels+1) 
+            # Tomar solo los grafos únicos (cada num_noise_per_graph es el mismo grafo)
+            channel_matrix_batch = channel_matrix_all[::num_noise_per_graph]  # [batch_size, num_links, num_links]
+
+            if batch_idx == 0 and epoc == 0:
+                H_ejemplo = channel_matrix_batch[0]  # Primer grafo del primer batch
+                eigenvalues, eigenvectors = torch.linalg.eigh(H_ejemplo)
+                print("=== Vectores propios del primer grafo ===")
+                print("Eigenvalues:", eigenvalues)
+                print("Eigenvectors (cada columna es un u_n):\n", eigenvectors)
+                print("Shape:", eigenvectors.shape)
+
+            # 1. Forward con todos los ruidos
+            psi_raw = gnn_model.forward(data.x, data.edge_index, data.edge_attr) 
+            # psi_raw: [effective_batch_size, num_links, output_dim]
+            
+            # 2. Reshape para separar los samples de ruido
+            psi_raw = psi_raw.view(batch_size, num_noise_per_graph, num_links, output_dim)
+            
+            # 3. Aplicar σ(·) = (·)² coordenada a coordenada
+            psi_squared = psi_raw ** 2
+            
+            # 4. Promediar sobre los samples de ruido: E[σ(z)]
+            psi = psi_squared.mean(dim=1)  # [batch_size, num_links, output_dim]
+            # Esta es la clave del paper: E[z²] mantiene equivarianza
+            
             probs = torch.softmax(psi, dim=-1)  
             dist = torch.distributions.Categorical(probs=probs)  
             actions = dist.sample()            
-            log_p = dist.log_prob(actions)     # [64, 5]
-            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)       # [64,1]
+            log_p = dist.log_prob(actions)     # [batch_size, num_links]
+            log_p_sum = log_p.sum(dim=1).unsqueeze(-1)       # [batch_size, 1]
             
             # Solo selección de canal, sin niveles de potencia
             phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)
@@ -147,7 +168,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
                 mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
     
-
+    print("\n=== Parámetros aprendidos ===")
     for name, param in gnn_model.named_parameters():
         if param.requires_grad:
             print(name, param.data)
@@ -202,6 +223,8 @@ if __name__ == '__main__':
     parser.add_argument('--eps', type=float, default=5e-5)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
     parser.add_argument('--synthetic', type=int, default=1)
+    parser.add_argument('--num_noise_per_graph', type=int, default=10,
+                       help='Número de samples de ruido blanco por grafo (estrategia espectral)')
     
     args = parser.parse_args()
     
@@ -215,6 +238,11 @@ if __name__ == '__main__':
     print(f'eps: {args.eps}')
     print(f'mu_lr: {args.mu_lr}')
     print(f'synthetic: {args.synthetic}')
+    print(f'num_noise_per_graph: {args.num_noise_per_graph}')
     
-    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1, sanitycheck=True)
+    run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, 
+        num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, 
+        epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, 
+        rn=rn, rn1=rn1, sanitycheck=True, num_noise_per_graph=args.num_noise_per_graph)
+    
     print('Seeds: {} and {}'.format(rn, rn1))

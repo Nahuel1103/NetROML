@@ -50,48 +50,91 @@ import pickle
 
 
 
-def build_adhoc_network(num_channels, pl, break_symmetry=True):
-    transmitters = np.random.uniform(low=-num_channels, high=num_channels, size=(num_channels,2))
-    receivers = transmitters + np.random.uniform(low=-num_channels/4, high=num_channels/4, size=(num_channels,2))
+# def build_adhoc_network(num_channels, pl, break_symmetry=True):
 
-    L = np.zeros((num_channels, num_channels))
+#     # Transmisores uniformemente en un área cuadrada
+#     transmitters = np.random.uniform(low=-num_channels, high=num_channels, size=(num_channels,2))
+#     receivers = transmitters + np.random.uniform(low=-num_channels/4, high=num_channels/4, size=(num_channels,2))
 
-    for i in np.arange(num_channels):
-        for j in np.arange(num_channels):
-            d = np.linalg.norm(transmitters[i,:] - receivers[j,:])
+#     L = np.zeros((num_channels, num_channels))
+
+#     for i in np.arange(num_channels):
+#         for j in np.arange(num_channels):
+#             d = np.linalg.norm(transmitters[i,:] - receivers[j,:])
+#             L[i,j] = np.power(d, -pl)
+
+#     data = {'T': [], 'R':[], 'L':[]}
+#     data['T'] = transmitters
+#     data['R'] = receivers
+#     data['A'] = L
+    
+#     # MODIFICACIÓN: Diagonal asimétrica para romper simetría
+# # Después de calcular L
+#     if break_symmetry:
+#         for i in range(0, 3):
+#             L[i,i] += 5 + i
+#             # Reducir interferencia cruzada entre activos
+#             for j in range(0, 3):
+#                 if i != j:
+#                     L[i,j] *= 0.3  # Reducir a 30% la interferencia
+#     else:
+#         # Simétrico (original)
+#         for i in range(0, 3):
+#             L[i,i] += 5
+    
+#     # # Eliminar enlaces
+
+#     # Escenario 1
+#     # L[0,2:6] = 0
+#     # L[1,3:6] = 0
+#     # L[2,0] = 0
+#     # L[2,3:6] = 0
+#     # L[3,:] = 0
+#     # L[4,:] = 0
+#     # L[5,:] = 0
+
+#     #Escenario 2
+#     L[1,3:6] = 0
+#     L[0,3:6] = 0
+#     L[2,3:6] = 0
+#     L[3,:] = 0
+#     L[4,:] = 0
+#     L[5,:] = 0
+    
+#     return L
+
+def build_adhoc_network(pl):
+    """
+    Crea matriz 6x6 para 3 links (3 TX + 3 RX).
+    Nodos 0,1,2 = TX (afuera)
+    Nodos 3,4,5 = RX (adentro)
+    """
+    # 3 TX afuera (triángulo grande)
+    tx_radius = 3.5
+    transmitters = np.array([
+        [0.0, tx_radius],                           
+        [-tx_radius * np.sqrt(3)/2, -tx_radius/2], 
+        [tx_radius * np.sqrt(3)/2, -tx_radius/2]   
+    ])
+    
+    # 3 RX adentro (triángulo pequeño)
+    receivers = np.array([
+        [0.0, 0.3],           
+        [-0.26, -0.15],       
+        [0.26, -0.15]         
+    ])
+    
+    # Combinar TODOS los nodos [TX0, TX1, TX2, RX0, RX1, RX2]
+    all_nodes = np.vstack([transmitters, receivers])
+    
+    # Matriz 6x6: distancias entre TODOS los nodos
+    L = np.zeros((6, 6))
+    for i in range(6):
+        for j in range(6):
+            d = np.linalg.norm(all_nodes[i] - all_nodes[j])
+            d = max(d, 0.1)
             L[i,j] = np.power(d, -pl)
 
-    data = {'T': [], 'R':[], 'L':[]}
-    data['T'] = transmitters
-    data['R'] = receivers
-    data['A'] = L
-    
-    # MODIFICACIÓN: Diagonal asimétrica para romper simetría
-# Después de calcular L
-    if break_symmetry:
-        for i in range(0, 3):
-            L[i,i] += 5 + i
-            # Reducir interferencia cruzada entre activos
-            for j in range(0, 3):
-                if i != j:
-                    L[i,j] *= 0.3  # Reducir a 30% la interferencia
-    else:
-        # Simétrico (original)
-        for i in range(0, 3):
-            L[i,i] += 5
-    
-    # # Eliminar enlaces
-
-    # Escenario 1
-    # L[0,2:6] = 0
-    # L[1,3:6] = 0
-    # L[2,0] = 0
-    # L[2,3:6] = 0
-    # L[3,:] = 0
-    # L[4,:] = 0
-    # L[5,:] = 0
-
-    #Escenario 2
     L[1,3:6] = 0
     L[0,3:6] = 0
     L[2,3:6] = 0
@@ -100,6 +143,20 @@ def build_adhoc_network(num_channels, pl, break_symmetry=True):
     L[5,:] = 0
     
     return L
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #############################################
