@@ -27,8 +27,7 @@ def train_gnn_policy():
         H_iterator=channel_iterator(10000, n_APs)
     )
 
-    policy_kwargs = dict(n_APs=n_APs,
-                         gnn_hidden_dim=32,
+    policy_kwargs = dict(gnn_hidden_dim=32,
                          gnn_num_layers=3,
                          K=3)
 
