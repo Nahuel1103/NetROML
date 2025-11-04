@@ -94,12 +94,23 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         print("Epoch number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
 
-            # Obtener channel matrices (cada grafo aparece num_noise_per_graph veces)
-            channel_matrix_all = data.matrix
-            channel_matrix_all = channel_matrix_all.view(effective_batch_size, num_links, num_links) 
+            # data.matrix contiene todas las matrices aplanadas concatenadas
+            total_matrix_elements = data.matrix.shape[0]
+            actual_num_links = int(np.sqrt(total_matrix_elements / effective_batch_size))
+            
+            if batch_idx == 0 and epoc == 0:
+                print(f"INFO: num_links del argumento: {num_links}")
+                print(f"INFO: num_links real en los datos: {actual_num_links}")
+                print(f"INFO: Usando num_links = {actual_num_links} para el resto del entrenamiento")
+            
+            # Usar el num_links correcto
+            num_links_actual = actual_num_links
+            
+            # Obtener channel matrices
+            channel_matrix_all = data.matrix.view(effective_batch_size, num_links_actual, num_links_actual)
             
             # Tomar solo los grafos únicos (cada num_noise_per_graph es el mismo grafo)
-            channel_matrix_batch = channel_matrix_all[::num_noise_per_graph]  # [batch_size, num_links, num_links]
+            channel_matrix_batch = channel_matrix_all[::num_noise_per_graph]  # [batch_size, num_links_actual, num_links_actual]
 
             if batch_idx == 0 and epoc == 0:
                 H_ejemplo = channel_matrix_batch[0]  # Primer grafo del primer batch
@@ -110,33 +121,43 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
                 print("Shape:", eigenvectors.shape)
 
             # 1. Forward con todos los ruidos
+            # CLAVE: La salida de GNN en PyG es [total_nodes, output_dim]
+            # donde total_nodes = effective_batch_size * num_links_actual
             psi_raw = gnn_model.forward(data.x, data.edge_index, data.edge_attr) 
-            # psi_raw: [effective_batch_size, num_links, output_dim]
+            # psi_raw: [effective_batch_size * num_links_actual, output_dim]
             
-            # 2. Reshape para separar los samples de ruido
-            psi_raw = psi_raw.view(batch_size, num_noise_per_graph, num_links, output_dim)
+            # 2. Reshape para [effective_batch_size, num_links_actual, output_dim]
+            psi_raw = psi_raw.view(effective_batch_size, num_links_actual, output_dim)
             
-            # 3. Aplicar σ(·) = (·)² coordenada a coordenada
+            # 3. Reshape para separar los samples de ruido
+            psi_raw = psi_raw.view(batch_size, num_noise_per_graph, num_links_actual, output_dim)
+            
+            # 4. Aplicar σ(·) = (·)² coordenada a coordenada
             psi_squared = psi_raw ** 2
             
-            # 4. Promediar sobre los samples de ruido: E[σ(z)]
-            psi = psi_squared.mean(dim=1)  # [batch_size, num_links, output_dim]
+            # 5. Promediar sobre los samples de ruido: E[σ(z)]
+            psi = psi_squared.mean(dim=1)  # [batch_size, num_links_actual, output_dim]
             # Esta es la clave del paper: E[z²] mantiene equivarianza
             
             probs = torch.softmax(psi, dim=-1)  
             dist = torch.distributions.Categorical(probs=probs)  
             actions = dist.sample()            
-            log_p = dist.log_prob(actions)     # [batch_size, num_links]
+            log_p = dist.log_prob(actions)     # [batch_size, num_links_actual]
             log_p_sum = log_p.sum(dim=1).unsqueeze(-1)       # [batch_size, 1]
             
             # Solo selección de canal, sin niveles de potencia
-            phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)
+            phi = torch.zeros(batch_size, num_links_actual, num_channels, device=probs.device)
             active_mask = (actions > 0)
             active_channels = actions[active_mask] - 1
-            phi[active_mask, active_channels] = max_antenna_power_mw  
+            
+            # Crear índices para la asignación
+            batch_indices = torch.arange(batch_size, device=probs.device).unsqueeze(1).expand(-1, num_links_actual)[active_mask]
+            link_indices = torch.arange(num_links_actual, device=probs.device).unsqueeze(0).expand(batch_size, -1)[active_mask]
+            
+            phi[batch_indices, link_indices, active_channels] = max_antenna_power_mw  
 
 
-            power_constr_per_ap = power_constraint_per_ap(phi, pmax_per_ap)  # [batch_size, num_links]
+            power_constr_per_ap = power_constraint_per_ap(phi, pmax_per_ap[:num_links_actual])  # [batch_size, num_links_actual]
             power_constr_per_ap_mean = torch.mean(power_constr_per_ap, dim=(0,1))  
             rates = nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=max_antenna_power_mw)
 
@@ -144,9 +165,11 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             sum_rate_mean = torch.mean(sum_rate, dim=0)
 
             # Actualización de la penalización
-            mu_k = mu_update(mu_k, power_constr_per_ap, eps) 
+            mu_k_actual = mu_k[:num_links_actual]
+            mu_k_actual = mu_update(mu_k_actual, power_constr_per_ap, eps) 
+            mu_k[:num_links_actual] = mu_k_actual
 
-            penalty_per_ap = power_constr_per_ap * mu_k.unsqueeze(0)  
+            penalty_per_ap = power_constr_per_ap * mu_k_actual.unsqueeze(0)  
             total_penalty = penalty_per_ap.sum(dim=1).unsqueeze(-1)   
 
             cost = sum_rate + total_penalty  
@@ -160,13 +183,13 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
             if batch_idx%10 == 0:
 
-                probs_mean_batch = probs.mean(dim=0)  # Promedio sobre batch: [num_links, num_channels+1]
+                probs_mean_batch = probs.mean(dim=0)  # Promedio sobre batch: [num_links_actual, num_channels+1]
                 probs_values.append(probs_mean_batch.detach().numpy())
                 
                 power_constraint_values.append(power_constr_per_ap_mean.detach().numpy())
                 objective_function_values.append(-sum_rate_mean.detach().numpy())
                 loss_values.append(loss_mean.squeeze(-1).detach().numpy())
-                mu_k_values.append(mu_k.squeeze(-1).detach().numpy())
+                mu_k_values.append(mu_k_actual.squeeze(-1).detach().numpy())
     
     print("\n=== Parámetros aprendidos ===")
     for name, param in gnn_model.named_parameters():
@@ -218,10 +241,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_links', type=int, default=6)
     parser.add_argument('--num_layers', type=int, default=3)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=250)
+    parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--eps', type=float, default=5e-5)
-    parser.add_argument('--mu_lr', type=float, default=5e-4)
+    parser.add_argument('--eps', type=float, default=5e-4)
+    parser.add_argument('--mu_lr', type=float, default=5e-3)
     parser.add_argument('--synthetic', type=int, default=1)
     parser.add_argument('--num_noise_per_graph', type=int, default=10,
                        help='Número de samples de ruido blanco por grafo (estrategia espectral)')

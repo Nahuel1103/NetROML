@@ -1,7 +1,7 @@
 import pickle
 import numpy as np
 import os
-from networks import build_adhoc_network, build_line_network, build_cellular_network, build_adhoc_network_sc
+from networks import build_adhoc_network, build_line_network, build_cellular_network, build_adhoc_network_sc, build_adhoc_network_3d
 import networkx as nx
 
 
@@ -12,7 +12,7 @@ pl = 1e-5
 graphs = []
 for _ in range(num_graphs):
     pl = np.random.rand()
-    L = build_adhoc_network(pl)
+    L = build_adhoc_network_3d(pl)
     graphs.append(L)
 
 # Guarda el archivo en la ruta esperada por tu función

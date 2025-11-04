@@ -289,4 +289,94 @@ def build_adhoc_network_sc(num_links, pl=None):
     return L
 
 
+def build_adhoc_network_3d_choclo(num_channels, pl, break_symmetry=True):
+    """
+    Crea una red ad-hoc donde transmisores y receptores están distribuidos en 3D.
+    La matriz L contiene los valores de enlace calculados según la distancia euclídea en 3D y el path loss pl.
+    Si break_symmetry=True, se modifica la diagonal para romper simetría y reducir interferencia cruzada en los primeros 3 nodos.
+    NO se ponen ceros de forma manual: la red queda totalmente conectada según la distancia.
+    """
+    # Transmisores uniformemente en un cubo
+    transmitters = np.random.uniform(low=-num_channels, high=num_channels, size=(num_channels, 3))
+    receivers = transmitters + np.random.uniform(low=-num_channels/4, high=num_channels/4, size=(num_channels, 3))
 
+    L = np.zeros((num_channels, num_channels))
+
+    # Calculo de la matriz de enlaces en 3D
+    for i in np.arange(num_channels):
+        for j in np.arange(num_channels):
+            d = np.linalg.norm(transmitters[i,:] - receivers[j,:])
+            # Si la distancia es cero, evitamos división por cero (self-loop)
+            if d == 0:
+                L[i,j] = 1.0
+            else:
+                L[i,j] = np.power(d, -pl)
+
+    data = {'T': transmitters, 'R': receivers, 'A': L}
+
+    if break_symmetry:
+        for i in range(0, min(num_channels, 3)):
+            L[i,i] += 5
+            # Reducir interferencia cruzada entre los primeros 3
+            for j in range(0, min(num_channels, 3)):
+                if i != j:
+                    L[i,j] *= 0.3
+    else:
+        # Simetría en diagonal (versión original)
+        for i in range(0, min(num_channels, 3)):
+            L[i,i] += 5
+
+    return L
+
+
+def build_adhoc_network_3d(pl, tx_z=0.0, rx_z=0.0):
+    """
+    Crea matriz 3x3 para 3 transmisores en 3D (triángulo grande) y 3 receptores superpuestos en el centro del triángulo.
+    Nodos 0,1,2 = TX (triángulo grande, plano z=tx_z)
+    Nodos 0,1,2 destino = RX (los tres en el punto central, plano z=rx_z)
+    """
+    # 3 TX: triángulo grande
+    tx_radius = 3.5
+    transmitters = np.array([
+        [0.0, tx_radius],                           
+        [-tx_radius * np.sqrt(3)/2, -tx_radius/2], 
+        [tx_radius * np.sqrt(3)/2, -tx_radius/2]   
+    ])
+    
+
+        # 3 RX adentro (triángulo pequeño)
+    receivers = np.array([
+        [0.0, 0.3],           
+        [-0.26, -0.15],       
+        [0.26, -0.15]         
+    ])
+    
+    L = np.zeros((3, 3))
+    for i in range(3):
+        for j in range(3):
+            d = np.linalg.norm(transmitters[i,:] - receivers[j,:])
+            L[i,j] = np.power(d, -pl)
+    return L
+
+
+
+def build_adhoc_network(num_channels,pl):
+
+    transmitters = np.random.uniform(low=-num_channels, high=num_channels, size=(num_channels,2))
+    receivers = transmitters + np.random.uniform(low=-num_channels/4,high=num_channels/4, size=(num_channels,2))
+
+    L = np.zeros((num_channels,num_channels))
+
+    for i in np.arange(num_channels):
+        for j in np.arange(num_channels):
+            d = np.linalg.norm(transmitters[i,:]-receivers[j,:])
+            L[i,j] = np.power(d,-pl)
+
+
+    data = {'T': [], 'R':[], 'L':[]}
+    data['T'] = transmitters
+    data['R'] = receivers
+    data['A'] = L
+    #scipy.io.savemat("pl_net" + str(num_channels) + ".mat", data)
+
+    return L

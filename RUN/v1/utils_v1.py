@@ -180,6 +180,47 @@ def graphs_to_tensor_sc(num_links, num_features = 1, b5g = False, building_id = 
     return x_tensor, channel_matrix_tensor
 
 
+# def get_gnn_inputs(x_tensor, channel_matrix_tensor, num_noise_per_graph=10):
+#     """
+#     MODIFICADO: Ahora genera múltiples samples de ruido blanco por grafo.
+#     Implementa la estrategia del paper para mayor expresividad.
+    
+#     Args:
+#         x_tensor: no usado, solo para compatibilidad
+#         channel_matrix_tensor: [num_graphs, num_links, num_links]
+#         num_noise_per_graph: número de realizaciones de ruido por grafo
+#     """
+#     input_list = []
+#     size = channel_matrix_tensor.shape[0]
+#     num_links = channel_matrix_tensor.shape[1]
+    
+#     for i in range(size):
+#         channel_matrix = channel_matrix_tensor[i, :, :]
+        
+#         # Normalizar channel matrix
+#         norm = np.linalg.norm(channel_matrix, ord=2, axis=(0,1))
+#         channel_matrix_norm = channel_matrix / (norm + 1e-12)
+        
+#         # Construir edge_index y edge_attr (igual para todos los samples)
+#         edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
+#         edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]].float()
+        
+#         # Generar múltiples samples de ruido blanco para este grafo
+#         for sample_idx in range(num_noise_per_graph):
+#             # x ~ N(0, I) : ruido Gaussiano estándar
+#             x = torch.randn(num_links, 1) 
+            
+#             input_list.append(Data(
+#                 matrix=channel_matrix,
+#                 x=x.float(),          
+#                 edge_index=edge_index,
+#                 edge_attr=edge_attr,
+#                 graph_id=i,  # Para tracking
+#                 sample_id=sample_idx
+#             ))
+    
+#     return input_list
+
 def get_gnn_inputs(x_tensor, channel_matrix_tensor, num_noise_per_graph=10):
     """
     MODIFICADO: Ahora genera múltiples samples de ruido blanco por grafo.
@@ -205,23 +246,25 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor, num_noise_per_graph=10):
         edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
         edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]].float()
         
+        # CORRECCIÓN: Guardar la matriz original aplanada para que PyG la pueda batchear
+        matrix_flat = channel_matrix.flatten()
+        
         # Generar múltiples samples de ruido blanco para este grafo
         for sample_idx in range(num_noise_per_graph):
             # x ~ N(0, I) : ruido Gaussiano estándar
             x = torch.randn(num_links, 1) 
             
             input_list.append(Data(
-                matrix=channel_matrix,
+                matrix=matrix_flat,  # Guardar como vector plano
                 x=x.float(),          
                 edge_index=edge_index,
                 edge_attr=edge_attr,
                 graph_id=i,  # Para tracking
-                sample_id=sample_idx
+                sample_id=sample_idx,
+                num_links=num_links  # Guardar num_links para reconstruir
             ))
     
     return input_list
-
-
 
 def objective_function(rates):
     # sumamos solo sobre links
