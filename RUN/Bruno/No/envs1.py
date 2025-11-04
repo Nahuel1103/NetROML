@@ -1,7 +1,7 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from rates import get_reward
+from NetROML.RUN.Bruno.No.rates import get_reward
 
 class APNetworkEnv(gym.Env):
     """
