@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from stable_baselines3 import PPO
-from gnn_policy_No_Batches import GNNActorCriticPolicy
+from gnn_policy import GNNActorCriticPolicy
 from envs import APNetworkEnv
 
 
