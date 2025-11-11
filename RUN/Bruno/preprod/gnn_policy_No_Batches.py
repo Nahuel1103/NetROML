@@ -105,12 +105,16 @@ class GNNActorCriticPolicy(ActorCriticPolicy):
         self.actor_head = nn.Linear(self.hidden_dim, self.num_actions_per_node)
         self.value_head = nn.Linear(self.hidden_dim, 1)
 
+        # 🔧 Desactivar la capa interna que SB3 agregaba por defecto
+        self.action_net = nn.Identity()
+
         # Sobrescribimos optimizador
         self.optimizer = self.optimizer_class(self.parameters(), lr=lr_schedule(1))
 
+    
     def forward(self, obs, deterministic=False):
         """
-        Define cómo se generan las acciones a partir de las observaciones.
+        Genera acciones, valores y log-probs a partir de observaciones.
         """
         features_per_node = self.features_extractor(obs)       # [n_APs, hidden_dim]
         logits_per_node = self.actor_head(features_per_node)   # [n_APs, n_actions]
@@ -118,8 +122,22 @@ class GNNActorCriticPolicy(ActorCriticPolicy):
 
         # PPO espera logits aplanados
         logits = logits_per_node.flatten()
-        value = value_per_node.mean()  # promedio de valores por nodo
-        return logits, value
+        # value = value_per_node.mean()  # valor global del grafo
+        # value = value_per_node.mean().view(1, 1)
+        value = value_per_node.mean().reshape(1, 1)
+        
+        print(value)
+
+
+        # Distribución MultiCategorical (una por nodo)
+        distribution = self._get_action_dist_from_latent(logits.unsqueeze(0)) #el unsqueeze es porque SB3 espera batch
+
+        # Muestreamos o tomamos acción determinística
+        actions = distribution.get_actions(deterministic=deterministic)
+        log_probs = distribution.log_prob(actions).unsqueeze(1) #unsqueeze para que tenga shape [batch, 1]
+
+        return actions, value, log_probs
+
 
     def _predict(self, observation, deterministic=False):
         logits, _ = self.forward(observation, deterministic)
