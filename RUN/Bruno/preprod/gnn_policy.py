@@ -44,25 +44,32 @@ class GNNFeaturesExtractor(BaseFeaturesExtractor):
         H = observations["H"]
         mu = observations["mu"]
 
-        # Convertir a batch si no lo es
-        if H.dim() == 3:
-            H = H[0]
-            mu = mu[0]
+        if H.dim() == 2:
+            H = H.unsqueeze(0)
+            mu = mu.unsqueeze(0)
 
-        n_APs = H.shape[0]
+        batch_size, n_APs, _ = H.shape
         device = H.device
 
-        # Node features: [1, mu_i]
-        x = torch.ones(n_APs, 1, device=device)
-        x = torch.cat([x, mu.unsqueeze(-1)], dim=1)  # [n_APs, 2]
+        outputs = []
 
-        # Estructura del grafo
-        edge_index = H.nonzero(as_tuple=False).t()
-        edge_attr = H[edge_index[0], edge_index[1]]
+        for i in range(batch_size):
+            # Node features: [1, mu_i]
+            x = torch.ones(n_APs, 1, device=device)
+            x = torch.cat([x, mu[i].unsqueeze(-1)], dim=1)  # [n_APs, 2]
 
-        # Pasar por GNN → [n_APs, hidden_dim]
-        gnn_out = self.gnn(x, edge_index, edge_attr)
-        return gnn_out  # no se aplana, se conserva por nodo
+            # Estructura del grafo
+            edge_index = H[i].nonzero(as_tuple=False).t()
+            edge_attr = H[i][edge_index[0], edge_index[1]]
+
+            # Pasar por GNN → [n_APs, hidden_dim]
+            gnn_out = self.gnn(x, edge_index, edge_attr)
+            outputs.append(gnn_out)
+
+
+        # Apilamos resultados
+        # [batch_size, n_APs, hidden_dim]
+        return torch.stack(outputs, dim=0)
 
 
 class GNNActorCriticPolicy(ActorCriticPolicy):
@@ -116,27 +123,56 @@ class GNNActorCriticPolicy(ActorCriticPolicy):
         """
         Genera acciones, valores y log-probs a partir de observaciones.
         """
-        features_per_node = self.features_extractor(obs)       # [n_APs, hidden_dim]
-        logits_per_node = self.actor_head(features_per_node)   # [n_APs, n_actions]
-        value_per_node = self.value_head(features_per_node)    # [n_APs, 1]
+        features_per_node = self.features_extractor(obs)       # [batch_size, n_APs, hidden_dim]
 
-        # PPO espera logits aplanados
-        logits = logits_per_node.flatten()
-        # value = value_per_node.mean()  # valor global del grafo
-        # value = value_per_node.mean().view(1, 1)
-        value = value_per_node.mean().reshape(1, 1)
+        batch_size = features_per_node.shape[0]
+
+        # logits_per_node = self.actor_head(features_per_node)   # [batch_size, n_APs, n_actions]
+        # value_per_node = self.value_head(features_per_node)    # [batch_size, n_APs, 1]
+
+        # Reshape para aplicar linear layer: [batch*n_APs, hidden_dim]
+        features_flat = features_per_node.reshape(-1, self.hidden_dim)
+
+        # Aplicar heads
+        logits_flat = self.actor_head(features_flat)  # [batch*n_APs, n_actions]
+        value_flat = self.value_head(features_flat)   # [batch*n_APs, 1]
+
+        # Reshape back: [batch, n_APs, n_actions] y [batch, n_APs, 1]
+        logits_per_node = logits_flat.reshape(batch_size, self.n_APs, self.num_actions_per_node)
+        value_per_node = value_flat.reshape(batch_size, self.n_APs, 1)
+
+        # ✅ CLAVE: Concatenar logits de todos los nodos en dim=2
+        # [batch, n_APs * n_actions]
+        logits = logits_per_node.reshape(batch_size, -1)
         
-        print(value)
+        # Valor global del grafo
+        value = value_per_node.mean(dim=1)  # [batch, 1]
 
-
+        # # PPO espera logits aplanados
+        # # logits = logits_per_node.flatten()
+        # logits = logits_per_node.reshape(batch_size, -1)
+        # value = value_per_node.mean(dim=1).reshape(batch_size, 1)     # valor global del grafo
+        
         # Distribución MultiCategorical (una por nodo)
-        distribution = self._get_action_dist_from_latent(logits.unsqueeze(0)) #el unsqueeze es porque SB3 espera batch
+        distribution = self._get_action_dist_from_latent(logits) 
 
         # Muestreamos o tomamos acción determinística
         actions = distribution.get_actions(deterministic=deterministic)
         log_probs = distribution.log_prob(actions).unsqueeze(1) #unsqueeze para que tenga shape [batch, 1]
 
         return actions, value, log_probs
+    
+
+    def predict_values(self, obs):
+        """
+        Sobrescribe el método original de SB3.
+        Devuelve un tensor 1D (un valor por entorno) como PPO espera.
+        """
+        features_per_node = self.features_extractor(obs)       # [batch, n_APs, hidden_dim]
+        value_per_node = self.value_head(features_per_node)    # [batch, n_APs, 1]
+        value = value_per_node.mean(dim=1).reshape(-1)         # [batch]
+        return value
+
 
 
     def _predict(self, observation, deterministic=False):
@@ -144,3 +180,33 @@ class GNNActorCriticPolicy(ActorCriticPolicy):
         distribution = self._get_action_dist_from_latent(logits, None)
         actions = distribution.get_actions(deterministic=deterministic)
         return actions
+
+
+    def evaluate_actions(self, obs, actions):
+        """
+        🎯 CRÍTICO: PPO llama este método durante el training.
+        Evalúa acciones para el update de PPO.
+        Devuelve: values, log_probs, entropy
+        """
+        features_per_node = self.features_extractor(obs)  # [batch, n_APs, hidden_dim]
+        batch_size = features_per_node.shape[0]
+        
+        # Flatten y aplicar heads (misma lógica que forward)
+        features_flat = features_per_node.reshape(-1, self.hidden_dim)
+        logits_flat = self.actor_head(features_flat)  # [batch*n_APs, n_actions]
+        value_flat = self.value_head(features_flat)   # [batch*n_APs, 1]
+        
+        # Reshape back
+        logits_per_node = logits_flat.reshape(batch_size, self.n_APs, self.num_actions_per_node)
+        value_per_node = value_flat.reshape(batch_size, self.n_APs, 1)
+        
+        # Logits concatenados para SB3
+        logits = logits_per_node.reshape(batch_size, -1)  # [batch, n_APs * n_actions]
+        value = value_per_node.mean(dim=1).squeeze(-1)     # [batch]
+        
+        # Distribución y evaluación
+        distribution = self._get_action_dist_from_latent(logits)
+        log_probs = distribution.log_prob(actions)
+        entropy = distribution.entropy()
+        
+        return value, log_probs, entropy
