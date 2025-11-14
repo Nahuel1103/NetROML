@@ -195,11 +195,6 @@ class APNetworkEnv(gym.Env):
         self.current_step += 1
         action = np.array(action)   # ver si paso la accion de una o los logits
 
-        # Actualizar canal y multiplicadores
-        ##### ¿ESTO TENDRIA QUE HACERLO AHORA O AL FINAL?
-        
-        self.H = self._get_channel_matrix()
-
         if self.iterator_exhausted:
             terminated = True
             truncated = False
@@ -250,7 +245,9 @@ class APNetworkEnv(gym.Env):
 
 
         reward = self._compute_reward(phi)
-        
+
+        # Actualizar canal y multiplicadores para el próximo paso       
+        self.H = self._get_channel_matrix()        
         self.mu_power = self._update_mu()
 
 
@@ -268,7 +265,7 @@ class APNetworkEnv(gym.Env):
         obs = {
             "H": self.H,
             "mu": self.mu_power if isinstance(self.mu_power, np.ndarray) else self.mu_power.detach().cpu().numpy()
-        }
+        }        
 
         return obs, reward, terminated, truncated, info
     
