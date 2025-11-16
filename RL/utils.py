@@ -85,7 +85,7 @@ def transform_matrix(adj_matrix, all=True):
 def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, building_id=990, base_path=None):
     band = ['2_4', '5']
     if base_path is None:
-        path = '/Users/mauriciovieirarodriguez/project/NetROML/DATA/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+        path = '/Users/mauriciovieirarodriguez/project/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
     else:
         path = base_path
     file_name = ('train_' if train else 'val_') + f"{band[b5g]}_graphs_{building_id}.pkl"
@@ -110,7 +110,7 @@ def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, buildin
 def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
     
     band = ['2_4', '5']
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/DATA/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    path = '/Users/mauriciovieirarodriguez/project/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
     file_name = 'synthetic_graphs.pkl'
     with open(path + file_name, 'rb') as archivo:
         graphs = pickle.load(archivo)
@@ -163,6 +163,47 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor, normalize=True, eps=1e-12):
         data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, matrix=channel_matrix)
         input_list.append(data)
     return input_list
+
+def load_channel_matrix(building_id, b5g, num_links, synthetic=False, shuffle=True, repeat=True):
+    """Carga el dataset de matrices de canal."""
+    print(f"Cargando dataset (building_id={building_id}, synthetic={synthetic})...")
+    
+    if synthetic:
+        x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
+            num_links=num_links,
+            num_features=1,
+            b5g=b5g,
+            building_id=building_id
+        )
+        # dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+        channel_matrix_tensor = channel_matrix_tensor[:7000]
+    else:
+        x_tensor, channel_matrix_tensor = graphs_to_tensor(
+            train=True,
+            num_links=num_links,
+            num_features=1,
+            b5g=b5g,
+            building_id=building_id
+        )
+        # dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+    
+    # dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+
+    # Convertir a numpy
+    matrices = channel_matrix_tensor.numpy().astype(np.float32)
+    indices = np.arange(len(matrices))
+    
+    print(f"✓ Iterador creado: {len(matrices)} matrices")
+    
+    while True:
+        if shuffle:
+            np.random.shuffle(indices)
+        
+        for idx in indices:
+            yield matrices[idx]
+        
+        if not repeat:
+            break  
 
 def objective_function(rates):
     sum_rate = torch.sum(rates, dim=1)  

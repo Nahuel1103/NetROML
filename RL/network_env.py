@@ -8,8 +8,6 @@ from gymnasium import spaces
 import torch
 import numpy as np
 
-from utils import objective_function
-
 
 class NetworkEnvironment(gym.Env):
     """
@@ -30,244 +28,303 @@ class NetworkEnvironment(gym.Env):
                  max_antenna_power_dbm: int = 6,
                  sigma: float = 1e-4,
                  device: str = "cpu",
-                 channel_matrix_iter = None):
+                 channel_matrix_iter=None):
         super().__init__()
 
         # Parámetros de configuración del sistema
         self.num_links = num_links
         self.num_channels = num_channels
         self.num_power_levels = num_power_levels
+        self.max_steps = max_steps
         self.eps = eps
         self.max_antenna_power_dbm = max_antenna_power_dbm
         self.sigma = sigma
         self.device = torch.device(device)
 
-        # Channel matrix
-        self.channel_matrix = channel_matrix_iter
+        # Guardar el iterador
+        self.channel_matrix_source = channel_matrix_iter
         self.channel_matrix_iter = None
-
-        # Initialize the state
+        
+        # Estado interno
         self.step_count = 0
-        self.state = None
+        self.channel_matrix = None
+        self.phi = None
         self.rate = None
+        self.mu_k = None
+        self.power_constr = None
+        self.iterator_exhausted = False
 
-        # Inicializo parámetros internos
+        # Inicializar parámetros del sistema
         self._initialize_system_parameters()
 
         # Action space: 0 = no transmitir, 1..C*P = elegir canal+potencia
-        self.num_action_per_link =  1 + self.num_channels * self.num_power_levels
+        self.num_action_per_link = 1 + self.num_channels * self.num_power_levels
         self.action_space = spaces.MultiDiscrete([self.num_action_per_link] * self.num_links)
 
         # Observation space
         self.observation_space = spaces.Dict({
             'channel_matrix': spaces.Box(
-                low=-100.0,
+                low=-1.0,  
                 high=100.0,
                 shape=(self.num_links, self.num_links),
                 dtype=np.float32
             ),
             'mu_k': spaces.Box(
                 low=0.0,
-                high=1e3,
+                high=1.0,  
                 shape=(self.num_links,),
                 dtype=np.float32
             )
         })
 
-    def _initialize_system_parameters(self):
-        """Configuración de algunos parámetros del sistema"""
-        # p0 en Watts
-        self.p0 = 10 ** (self.max_antenna_power_dbm / 10.0)
-        # Potencia máxima por AP
-        self.pmax_per_ap = (0.95 * self.p0) * torch.ones((self.num_links,), device=self.device, dtype=torch.float32)
-        # Niveles discretos de potencia
-        self.power_levels = torch.linspace(self.p0 / self.num_power_levels,
-                                           self.p0,
-                                           self.num_power_levels,
-                                           device=self.device,
-                                           dtype=torch.float32)
-
-    def reset(self, seed = None, options = None):
+    def reset(self, seed=None, options=None):
         """Inicializa nuevo episodio."""
-
         super().reset(seed=seed)
 
-        if self.channel_matrix is not None:
-            self.channel_matrix_iter = iter(self.channel_matrix)
-
-        # Inicializo la primera matriz de canal del episodio
-        self.channel_matrix = self._get_channel_matrix()
-
-
-        # Variable dual por AP
-        self.mu_k = torch.ones((self.num_links,), device=self.device, dtype=torch.float32)
+        # Reinicializar iterador
+        if self.channel_matrix_source is not None:
+            self.channel_matrix_iter = iter(self.channel_matrix_source)
+        
+        self.iterator_exhausted = False
         self.step_count = 0
 
-        obs= self._get_observation()
+        # Inicializar primera matriz de canal
+        self.channel_matrix = self._get_channel_matrix()
+        
+        # Variable dual por AP
+        self.mu_k = torch.zeros((self.num_links,), device=self.device, dtype=torch.float32)
+        
+        # Inicializar phi y rate
+        self.phi = torch.zeros((self.num_links, self.num_channels), device=self.device, dtype=torch.float32)
+        self.rate = torch.zeros((self.num_links,), device=self.device, dtype=torch.float32)
+        self.power_constr = torch.zeros((self.num_links,), device=self.device, dtype=torch.float32)
+
+        obs = self._get_observation()
         info = {"episode_start": True}
 
         return obs, info
     
     def step(self, action):
         """Ejecuta una acción."""
+        self.step_count += 1
 
-        # Obtengo la matriz de canal
+        # Verificar si el iterador se agotó
+        if self.iterator_exhausted:
+            obs = {
+                'channel_matrix': -np.ones((self.num_links, self.num_links), dtype=np.float32),
+                'mu_k': self.mu_k.cpu().numpy()
+            }
+            return obs, 0.0, True, False, {"reason": "iterator_exhausted"}
+
+        # Obtener nueva matriz de canal
         self.channel_matrix = self._get_channel_matrix()
+        
+        # Verificar si el iterador se agotó después de obtener matriz
+        if self.iterator_exhausted:
+            obs = {
+                'channel_matrix': -np.ones((self.num_links, self.num_links), dtype=np.float32),
+                'mu_k': self.mu_k.cpu().numpy()
+            }
+            return obs, 0.0, True, False, {"reason": "iterator_exhausted"}
 
-        # Convierto una acción a phi
+        # Convertir acción a phi
         self.phi = self._actions_to_phi(action)
 
-        # 
+        # Calcular restricción de potencia
         self.power_constr = self._calculate_power_constraint()
 
-        self.mu_k = self._mu_update_per_ap() 
+        # Actualizar multiplicadores de Lagrange
+        self.mu_k = self._mu_update_per_ap()
 
+        # Calcular rates
         self.rate = self._get_rates()
 
+        # Calcular recompensa
         reward = self._calculate_reward()
 
+        # Obtener observación
         obs = self._get_observation()
         
-        self.step_count += 1
         terminated = False
         truncated = self.step_count >= self.max_steps
 
         info = {
             "step": self.step_count,
             "power_constraint": float(torch.mean(self.power_constr).item()),
-            "rate": self.rate
+            "rate": float(torch.sum(self.rate).item()),
+            "avg_mu": float(torch.mean(self.mu_k).item())
         }
 
         return obs, reward, terminated, truncated, info
 
+    def _initialize_system_parameters(self):
+        """Configuración de parámetros del sistema"""
+        # p0 en Watts
+        self.p0 = 10 ** (self.max_antenna_power_dbm / 10.0)
+        
+        # Potencia máxima por AP
+        self.pmax_per_ap = (0.95 * self.p0) * torch.ones(
+            (self.num_links,), device=self.device, dtype=torch.float32
+        )
+        
+        # Niveles discretos de potencia
+        self.power_levels = torch.linspace(
+            self.p0 / self.num_power_levels,
+            self.p0,
+            self.num_power_levels,
+            device=self.device,
+            dtype=torch.float32
+        )
+
     def _get_channel_matrix(self):
-
-        self.channel_matrix = next(self.channel_matrix_iter)
-
-        return self.channel_matrix
+        """Obtiene siguiente matriz de canal del iterador"""
+        if self.channel_matrix_iter is None:
+            raise ValueError("No hay iterador de matrices de canal definido.")
+        
+        try:
+            matrix = next(self.channel_matrix_iter)
+            
+            # Convertir a tensor de torch si viene como numpy
+            if isinstance(matrix, np.ndarray):
+                matrix = torch.from_numpy(matrix.astype(np.float32))
+            
+            # Mover al device correcto
+            if not isinstance(matrix, torch.Tensor):
+                matrix = torch.tensor(matrix, dtype=torch.float32)
+            
+            matrix = matrix.to(self.device)
+            
+            return matrix
+            
+        except StopIteration:
+            # Señalizar fin del iterador
+            self.iterator_exhausted = True
+            return -torch.ones((self.num_links, self.num_links), 
+                              device=self.device, dtype=torch.float32)
     
     def _actions_to_phi(self, action):
-        """Convierte acciones en matriz de asignación de canal y potencia"""
-
-        phi = np.zeros((self.num_links, self.num_channels))
+        """
+        Convierte acciones en matriz de asignación de canal y potencia
+        
+        action: array de shape [num_links]
+        Returns: tensor de shape [num_links, num_channels]
+        """
+        phi = torch.zeros((self.num_links, self.num_channels), 
+                         dtype=torch.float32, device=self.device)
 
         for link_idx in range(self.num_links):
-            act = action[link_idx]
-            if act == 0:
+            act = int(action[link_idx])
+            
+            if act == 0:  # No transmitir
                 continue
-            act -= 1
+            
+            act -= 1  # Ajustar índice (0 era "no transmitir")
             ch_idx = act // self.num_power_levels
             pw_idx = act % self.num_power_levels
+            
             if ch_idx < self.num_channels:
-                phi[link_idx, ch_idx] = self.power_levels[pw_idx].item()
+                phi[link_idx, ch_idx] = self.power_levels[pw_idx]
         
-        phi = torch.tensor(phi, dtype=torch.float32)
-
         return phi
-    
-    # def actions_to_phi_torch(actions, num_links, num_channels, num_power_levels, power_levels, device="cpu"):
-    #     # actions: torch tensor shape [num_links], dtype long/int
-    #     # power_levels: torch tensor shape [num_power_levels]
-    #     actions = actions.clone().long().to(device)
-    #     phi = torch.zeros((num_links, num_channels), dtype=torch.float32, device=device)
-
-    #     mask_tx = actions != 0  # enlaces que transmiten
-    #     if mask_tx.sum() == 0:
-    #         return phi
-
-    #     acts = actions[mask_tx] - 1  # 0..C*P-1
-    #     ch_idx = (acts // num_power_levels).long()
-    #     pw_idx = (acts % num_power_levels).long()
-
-    #     # evitar índices fuera de rango
-    #     valid = ch_idx < num_channels
-    #     if valid.sum() == 0:
-    #         return phi
-
-    #     # indices globales de links que transmiten y son válidos
-    #     links_idx = torch.nonzero(mask_tx).squeeze(1)[valid]
-    #     ch_idx = ch_idx[valid]
-    #     pw_idx = pw_idx[valid]
-
-    #     phi[links_idx, ch_idx] = power_levels[pw_idx]
-
-    #     return phi
 
     def _calculate_power_constraint(self):
         """
-        Devuelve vector (power_per_link - pmax_per_ap), shape [num_links].
-
-        Asume phi.shape == [num_links, num_channels] (2D) — cada fila es un enlace.
+        Calcula la violación de restricción de potencia por enlace
+        
+        Returns: tensor [num_links] con (power_used - pmax) por enlace
         """
-
-        return torch.sum(self.phi, dim=1) - self.pmax_per_ap
+        power_per_link = torch.sum(self.phi, dim=1)  # [num_links]
+        return power_per_link - self.pmax_per_ap
 
     def _mu_update_per_ap(self):
-        """Actualización de la variable dual"""
-
-        mu_k = self.mu_k.detach()
-        mu_k_update = self.eps * self.power_constr  
-        mu_k = mu_k + mu_k_update
-        mu_k = torch.max(mu_k, torch.tensor(0.0))
-
-        return mu_k
+        """
+        Actualización de variable dual usando método del gradiente proyectado
+        
+        Returns: tensor [num_links] con multiplicadores actualizados
+        """
+        mu_k_new = self.mu_k + self.eps * self.power_constr
+        mu_k_new = torch.clamp(mu_k_new, min=0.0)  # Proyección al dominio válido
+        return mu_k_new
 
     def _get_rates(self):
-        """"""
-
+        """
+        Calcula tasa de transmisión por enlace usando capacidad de Shannon
+        
+        Returns: tensor [num_links] con rate por enlace
+        """
         num_links, num_channels = self.phi.shape
 
-        # Señal útil
-        diagH = torch.diagonal(self.channel_matrix)
-        signal =  diagH.unsqueeze(-1) * self.phi
+        # Señal útil: diagonal de H multiplicada por potencia transmitida
+        diagH = torch.diagonal(self.channel_matrix, dim1=0, dim2=1)  # [num_links]
+        signal = diagH.unsqueeze(-1) * self.phi  # [num_links, num_channels]
 
-        # Máscara para eliminar diagonal y calcular interferencia
-        mask = (1 - torch.eye(num_links, device=self.device))
-        diagH_off = self.channel_matrix * mask
+        # Interferencia: señal recibida de otros transmisores
+        # Máscara para eliminar diagonal
+        mask = 1 - torch.eye(num_links, device=self.device, dtype=torch.float32)
+        H_off_diag = self.channel_matrix * mask  # [num_links, num_links]
+        
+        # Interferencia total por receptor y canal
+        interference = torch.matmul(H_off_diag, self.phi)  # [num_links, num_channels]
 
-        # Interferencia por receptor y canal: diagH_off @ phi
-        interference = diagH_off @ self.phi 
+        # SINR por enlace y canal
+        eps_safe = 1e-12
+        snr = signal / (self.sigma + interference + eps_safe)
 
-        # Calcular SNR por enlace y canal
-        snr = signal / (self.sigma + interference)
-
-        # Calcular rate total por enlace sumando sobre canales
-        rates = torch.log1p(torch.sum(snr, dim=-1))  
+        # Rate total por enlace (suma sobre canales)
+        rates = torch.sum(torch.log1p(snr), dim=-1)  # [num_links]
 
         return rates
 
-    def _objective_function(self):
-        """"""
-
-        sum_rate = torch.sum(self.rate)  
-        return sum_rate    
-
     def _calculate_reward(self):
-
+        """
+        Calcula recompensa como sum_rate - penalización por violar restricciones
+        
+        Returns: float con la recompensa
+        """
+        # Verificar validez de rates
         if not torch.isfinite(self.rate).all():
             return -100.0
 
-        sum_rate = -self._objective_function()
+        # Objetivo: maximizar sum rate (negativo para minimización)
+        sum_rate = torch.sum(self.rate)
+        
         if not torch.isfinite(sum_rate):
             return -100.0
 
-        penalty = (self.power_constr * self.mu_k).sum()
-        if not torch.isfinite(penalty).all():
-            penalty = torch.zeros_like(penalty)
+        # Penalización por violación de restricción de potencia
+        # Solo penalizar si power_constr > 0 (violación)
+        penalty = torch.sum(torch.clamp(self.power_constr, min=0.0) * self.mu_k)
+        
+        if not torch.isfinite(penalty):
+            penalty = torch.tensor(0.0, device=self.device)
 
-        reward = (sum_rate - penalty).mean().item()
+        # Recompensa = sum_rate - penalty
+        reward = (sum_rate - penalty).item()
+        
         return reward if np.isfinite(reward) else -100.0
     
     def _get_observation(self):
-        """"""
+        """
+        Construye observación para el agente
+        
+        Returns: dict con 'channel_matrix' y 'mu_k'
+        """
         return {
-            'channel_matrix': self.channel_matrix.numpy().astype(np.float32),
-            'mu_k': self.mu_k.numpy().astype(np.float32)
+            'channel_matrix': self.channel_matrix.cpu().numpy().astype(np.float32),
+            'mu_k': self.mu_k.cpu().numpy().astype(np.float32)
         }
 
-
     def render(self):
-        print(f"Step: {self.step_count}, Mu_k: {self.mu_k.numpy()}")
+        """Muestra estado actual del entorno"""
+        if self.phi is not None:
+            print(f"\n{'='*60}")
+            print(f"Step: {self.step_count}")
+            print(f"Mu_k: {self.mu_k.cpu().numpy()}")
+            print(f"Rates: {self.rate.cpu().numpy()}")
+            print(f"Total Rate: {torch.sum(self.rate).item():.4f}")
+            print(f"Power Constraint: {self.power_constr.cpu().numpy()}")
+            print(f"{'='*60}\n")
     
     def close(self):
+        """Cierra el entorno"""
         pass

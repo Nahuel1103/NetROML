@@ -1,139 +1,239 @@
-import os
+"""
+Script de entrenamiento para NetworkEnvironment con GNN Policy
+"""
+import numpy as np
 import torch
-import torch.optim as optim
-import torch.nn.functional as F
-from torch.distributions import Categorical
-
-import argparse
-import pickle
-import os
-
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.monitor import Monitor
-
-from RUN.utils import load_dataset
+from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from gnn_sb3_policy import GNNActorCriticPolicy
 from network_env import NetworkEnvironment
-from gnn import GNN 
-from utils import load_dataset
-from plot_results_torch import plot_results
+from utils import load_channel_matrix
 
-# class MetricsCallback(BaseCallback):
-#     """Callback para recolectar métricas y manejar graph_data."""
+
+def train_network_env():
+    """Entrena el agente GNN-PPO en NetworkEnvironment"""
     
-#     def __init__(self, verbose=0):
-#         super().__init__(verbose)
-#         self.episode_rewards = []
-#         self.power_constraints = []
-#         self.objectives = []
-#         self.mu_k_history = []
-        
-#         self._current_power_constraints = []
-#         self._current_objectives = []
-#         self._current_mu_k = []
-
-#     def _on_step(self) -> bool:
-#         """Llamado después de cada step del entorno."""
-#         infos = self.locals.get('infos', [])
-        
-#         for info in infos:
-#             # Recolectar métricas
-#             if 'power_constraint' in info:
-#                 self._current_power_constraints.append(info['power_constraint'])
-#             if 'sum_rate' in info:
-#                 self._current_objectives.append(-info['sum_rate'])
-#             if 'mu_k' in info:
-#                 self._current_mu_k.append(info['mu_k'].copy())
-            
-#             # CRÍTICO: Inyectar graph_data en la política
-#             if 'graph_data' in info:
-#                 if hasattr(self.model.policy, 'current_graph_data'):
-#                     self.model.policy.current_graph_data = info['graph_data']
-        
-#         # Detectar fin de episodio
-#         dones = self.locals.get('dones', [])
-#         if any(dones):
-#             if len(self._current_power_constraints) > 0:
-#                 self.power_constraints.append(np.mean(self._current_power_constraints))
-#                 self.objectives.append(np.mean(self._current_objectives))
-#                 self.mu_k_history.append(np.mean(self._current_mu_k, axis=0))
-            
-#             # Reset temporales
-#             self._current_power_constraints = []
-#             self._current_objectives = []
-#             self._current_mu_k = []
-        
-#         return True
-
-#     def _on_rollout_end(self) -> None:
-#         """Logging al final de cada rollout."""
-#         if self.verbose > 0 and len(self.objectives) > 0:
-#             print(f"  Episodios completados: {len(self.objectives)}")
-#             print(f"  Objetivo promedio: {self.objectives[-1]:.4f}")
-#             print(f"  Restricción promedio: {self.power_constraints[-1]:.4f}")
-
-
-def train(building_id=990, b5g=0, num_layers=5, num_links=5, num_channels=3, 
-                  num_power_levels=2, K=3, batch_size=64, 
-                  epochs=100, eps=5e-4, mu_lr=1e-4, synthetic=0, 
-                  max_antenna_power_dbm=6, sigma=1e-4):
-
-    input_dim = 1
-    hidden_dim = 1
-    output_dim = 1 + num_channels * num_power_levels
-
-    # ---------- 1) Cargar datos ----------
-
-    data = load_dataset(building_id, b5g, num_links, batch_size, synthetic)
-
-    channel_matrix = data.matrix
-    channel_matrix = channel_matrix.view(batch_size, num_links, num_links)
-
-    # ---------- 2) Crear Environment ----------
-
-    env = NetworkEnvironment(channel_matrix=channel_matrix)
-
-    # Llamar reset() para crear el iterador interno
+    # Configuración del entorno
+    num_links = 5
+    num_channels = 3
+    num_power_levels = 2
+    max_steps = 100
+    
+    print("🔧 Configurando entorno...")
+    print(f"  - Enlaces: {num_links}")
+    print(f"  - Canales: {num_channels}")
+    print(f"  - Niveles de potencia: {num_power_levels}")
+    
+    # Cargar iterador de matrices de canal
+    print("\n📡 Cargando matrices de canal...")
+    channel_matrix_iter = load_channel_matrix(
+        building_id=990,
+        b5g=False,  # 2.4 GHz
+        num_links=num_links,
+        synthetic=False,  # True para datos sintéticos
+        shuffle=True,
+        repeat=True  # Reinicia automáticamente
+    )
+    
+    # Crear entorno
+    env = NetworkEnvironment(
+        num_links=num_links,
+        num_channels=num_channels,
+        num_power_levels=num_power_levels,
+        max_steps=max_steps,
+        eps=5e-4,
+        max_antenna_power_dbm=6,
+        sigma=1e-4,
+        device="cpu",
+        channel_matrix_iter=channel_matrix_iter
+    )
+    
+    # ✅ Verificar entorno
+    print("\n✓ Verificando entorno...")
+    try:
+        check_env(env, warn=True, skip_render_check=True)
+        print("  ✓ Entorno válido")
+    except Exception as e:
+        print(f"  ⚠️  Error en verificación: {e}")
+        print("  Continuando de todas formas...")
+    
+    # Test manual del entorno
+    print("\n🧪 Test del entorno...")
     obs, info = env.reset()
-
-    gnn_model = GNN(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim,
-                    num_layers=num_layers, dropout=False, K=K).to(device)
-    optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
-
- 
-
-
-
-    for name, param in gnn_model.named_parameters():
-        param.requires_grad = True
-        if param.requires_grad:
-            print(name, param.data)
-
+    print(f"  - Observation space: {env.observation_space}")
+    print(f"  - Action space: {env.action_space}")
+    print(f"  - Obs keys: {obs.keys()}")
+    print(f"  - Channel matrix shape: {obs['channel_matrix'].shape}")
+    print(f"  - Mu_k shape: {obs['mu_k'].shape}")
     
+    # Test de un paso
+    action = env.action_space.sample()
+    obs, reward, terminated, truncated, info = env.step(action)
+    print(f"  - Reward: {reward:.4f}")
+    print(f"  - Info: {info}")
+    print("  ✓ Test completado\n")
+    
+    # Resetear para entrenamiento
+    env.reset()
+    
+    # Configuración de la política GNN
+    policy_kwargs = dict(
+        gnn_hidden_dim=32,
+        gnn_num_layers=3,
+        K=3
+    )
+    
+    print("🤖 Creando modelo PPO con GNN...")
+    print(f"  - Hidden dim: {policy_kwargs['gnn_hidden_dim']}")
+    print(f"  - GNN layers: {policy_kwargs['gnn_num_layers']}")
+    print(f"  - K-hop: {policy_kwargs['K']}")
+    
+    # Crear modelo PPO
+    model = PPO(
+        GNNActorCriticPolicy,
+        env,
+        policy_kwargs=policy_kwargs,
+        learning_rate=3e-4,
+        n_steps=2048,      # Horizonte de recolección
+        batch_size=128,    # Tamaño de batch para actualización
+        n_epochs=10,       # Épocas de actualización
+        gamma=0.99,        # Factor de descuento
+        gae_lambda=0.95,   # GAE lambda
+        clip_range=0.2,    # PPO clip range
+        ent_coef=0.01,     # Coeficiente de entropía (exploración)
+        vf_coef=0.5,       # Coeficiente de value function
+        max_grad_norm=0.5, # Gradient clipping
+        verbose=1,
+        tensorboard_log="./tensorboard_logs/"
+    )
+    
+    # Callbacks para guardar checkpoints
+    checkpoint_callback = CheckpointCallback(
+        save_freq=10000,
+        save_path="./checkpoints/",
+        name_prefix="gnn_ppo_network"
+    )
+    
+    print("\n🚀 Iniciando entrenamiento...")
+    print("="*60)
+    
+    # Entrenar
+    total_timesteps = 100000
+    model.learn(
+        total_timesteps=total_timesteps,
+        callback=checkpoint_callback,
+        tb_log_name="gnn_ppo_network",
+        progress_bar=True
+    )
+    
+    print("\n✓ Entrenamiento completado")
+    
+    # Guardar modelo final
+    model_path = "./models/gnn_ppo_network_final"
+    model.save(model_path)
+    print(f"✓ Modelo guardado en: {model_path}")
+    
+    # Evaluar modelo entrenado
+    evaluate_model(model, n_episodes=10)
+    
+    return model, env
 
-    for step in range(100):
-        action = env.action_space.sample()
-        obs, reward, terminated, truncated, info = env.step(action)
-        if truncated:
-            break
 
-            epochs = epochs
-    for ep in range(start_epoch, epochs):
-        obs, info = env.reset()
-        done = False
-        total_reward = 0.0
+def evaluate_model(model, n_episodes=10):
+    """
+    Evalúa el modelo entrenado creando un entorno limpio
+    """
+    from utils import load_channel_matrix
+    
+    print(f"\n📊 Evaluando modelo por {n_episodes} episodios...")
+    
+    # ✅ Crear entorno de evaluación limpio
+    num_links = 5
+    num_channels = 3
+    num_power_levels = 2
+    max_steps = 100
+    
+    channel_matrix_iter = load_channel_matrix(
+        building_id=990,
+        b5g=False,
+        num_links=num_links,
+        synthetic=False,
+        shuffle=True,
+        repeat=True
+    )
+    
+    eval_env = NetworkEnvironment(
+        num_links=num_links,
+        num_channels=num_channels,
+        num_power_levels=num_power_levels,
+        max_steps=max_steps,
+        eps=5e-4,
+        max_antenna_power_dbm=6,
+        sigma=1e-4,
+        device="cpu",
+        channel_matrix_iter=channel_matrix_iter
+    )
+    
+    total_rewards = []
+    total_rates = []
+    total_power_violations = []
+    
+    for episode in range(n_episodes):
+        obs, _ = eval_env.reset()
+        episode_reward = 0
+        episode_rates = []
+        episode_violations = []
+        step_count = 0
+        
+        while step_count < max_steps:
+            # ✅ Usar método interno de la política para evitar problemas con VecEnv
+            with torch.no_grad():
+                # Convertir obs a tensors
+                obs_tensor = {
+                    'channel_matrix': torch.FloatTensor(obs['channel_matrix']).unsqueeze(0),
+                    'mu_k': torch.FloatTensor(obs['mu_k']).unsqueeze(0)
+                }
+                
+                # Obtener acción de la política directamente
+                actions, _, _ = model.policy.forward(obs_tensor, deterministic=True)
+                action = actions.cpu().numpy()[0]  # Remover batch dimension
+            
+            obs, reward, terminated, truncated, info = eval_env.step(action)
+            
+            episode_reward += reward
+            episode_rates.append(info.get('rate', 0))
+            episode_violations.append(info.get('power_constraint', 0))
+            step_count += 1
+            
+            if terminated or truncated:
+                break
+        
+        total_rewards.append(episode_reward)
+        total_rates.append(np.mean(episode_rates) if episode_rates else 0)
+        total_power_violations.append(np.mean(episode_violations) if episode_violations else 0)
+        
+        print(f"  Episode {episode+1}: Reward={episode_reward:.2f}, "
+              f"Avg Rate={np.mean(episode_rates) if episode_rates else 0:.4f}, "
+              f"Avg Violation={np.mean(episode_violations) if episode_violations else 0:.4f}, "
+              f"Steps={step_count}")
+    
+    print(f"\n📈 Resultados de evaluación ({n_episodes} episodios):")
+    print(f"  - Reward promedio: {np.mean(total_rewards):.2f} ± {np.std(total_rewards):.2f}")
+    print(f"  - Rate promedio: {np.mean(total_rates):.4f} ± {np.std(total_rates):.4f}")
+    print(f"  - Violación promedio: {np.mean(total_power_violations):.4f}")
+    
+    eval_env.close()
+    return total_rewards, total_rates, total_power_violations
 
-        for step_idx in range(env.max_steps):
-            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
-            psi = psi.view(batch_size, num_links, output_dim)
-            # Adaptá la forma si tu GNN devuelve [L, output_dim] o [1, L, output_dim]
-            # Ejemplo: tomar softmax por nodo / enlace
-            logits = psi.view(num_links, -1)  # [L, output_dim]
-            probs = torch.softmax(logits, dim=-1)
-            # elegir acción por enlace (greedy o sample)
-            actions_per_link = torch.argmax(probs, dim=-1).cpu().numpy()  # array length L
 
-            # mapear acciones_per_link a formato que espera env (lista ints)
-            action = [int(a) for a in actions_per_link]  # asegúrate que el mapeo coincide con env (0=no_tx, 1..C*P)
-            obs, reward, terminated, truncated, info = env.step(action)
-            total_reward += reward
+if __name__ == "__main__":
+    print("="*60)
+    print("  Entrenamiento GNN-PPO para Optimización de Redes Wi-Fi")
+    print("="*60 + "\n")
+    
+    model, env = train_network_env()
+    
+    print("\n" + "="*60)
+    print("  ✓ Proceso completado exitosamente")
+    print("="*60)
