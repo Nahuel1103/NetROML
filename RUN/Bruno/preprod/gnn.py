@@ -38,12 +38,12 @@ class GNN(torch.nn.Module):
       self.K = K
 
       # first layer
-      self.convs.append(TAGConv(in_channels = input_dim, out_channels = hidden_dim, K = K, bias = True, normalize = False))
+      self.convs.append(TAGConv(in_channels=input_dim, out_channels=hidden_dim, K=K, bias=True, normalize=False))
       # intermediate layers
       for _ in range(num_layers - 2):
-        self.convs.append(TAGConv(in_channels = hidden_dim, out_channels = hidden_dim, K = K, bias = True, normalize = False)) 
+        self.convs.append(TAGConv(in_channels=hidden_dim, out_channels=hidden_dim, K=K, bias=True, normalize=False)) 
       # last layer
-      self.convs.append(TAGConv(in_channels = hidden_dim, out_channels = output_dim, K = K, bias = False, normalize = False))
+      self.convs.append(TAGConv(in_channels=hidden_dim, out_channels=output_dim, K=K, bias=False, normalize=False))
 
       self.initialize_weights()
 

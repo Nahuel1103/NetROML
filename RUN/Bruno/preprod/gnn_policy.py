@@ -112,7 +112,7 @@ class GNNActorCriticPolicy(ActorCriticPolicy):
         self.actor_head = nn.Linear(self.hidden_dim, self.num_actions_per_node)
         self.value_head = nn.Linear(self.hidden_dim, 1)
 
-        # 🔧 Desactivar la capa interna que SB3 agregaba por defecto
+        # Desactivar la capa interna que SB3 agregaba por defecto
         self.action_net = nn.Identity()
 
         # Sobrescribimos optimizador
