@@ -164,7 +164,7 @@ def graphs_to_tensor_sc(num_links, num_features = 1, b5g = False, building_id = 
     
     band = ['2_4', '5']
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    GRAPH_ROOT = os.path.join(BASE_DIR, '..', 'graphs')
+    GRAPH_ROOT = os.path.join(BASE_DIR, '../', 'graphs')
     path = os.path.join(GRAPH_ROOT, f'{band[b5g]}_{building_id}')
     file_name = 'sc_graphs.pkl'
     with open(os.path.join(path, file_name), 'rb') as archivo:
