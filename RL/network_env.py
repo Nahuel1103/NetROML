@@ -148,11 +148,28 @@ class NetworkEnvironment(gym.Env):
         terminated = False
         truncated = self.step_count >= self.max_steps
 
+        # Extraer qué canal y nivel de potencia se eligió para visualización
+        # Esto nos permite 'ver' la decisión
+        allocation_log = []
+        for link_idx, act in enumerate(action):
+            act = int(act)
+            if act == 0:
+                allocation_log.append((-1, 0.0)) # (Canal -1 significa apagado, Potencia 0)
+            else:
+                act_idx = act - 1
+                ch = act_idx // self.num_power_levels
+                pw_idx = act_idx % self.num_power_levels
+                power_val = self.power_levels[pw_idx].item()
+                allocation_log.append((ch, power_val))
+
         info = {
             "step": self.step_count,
             "power_constraint": float(torch.mean(self.power_constr).item()),
             "rate": float(torch.sum(self.rate).item()),
-            "avg_mu": float(torch.mean(self.mu_k).item())
+            "avg_mu": float(torch.mean(self.mu_k).item()),
+            # Nuevos campos para debug:
+            "action_phi": self.phi.cpu().numpy().copy(), # La matriz real de potencias
+            "allocation_desc": allocation_log            # Lista legible [(canal, potencia), ...]
         }
 
         return obs, reward, terminated, truncated, info
@@ -248,30 +265,51 @@ class NetworkEnvironment(gym.Env):
 
     def _get_rates(self):
         """
-        Calcula tasa de transmisión por enlace usando capacidad de Shannon
-        
-        Returns: tensor [num_links] con rate por enlace
+        Calcula tasa considerando interferencia co-canal y canales adyacentes.
         """
-        num_links, num_channels = self.phi.shape
-
-        # Señal útil: diagonal de H multiplicada por potencia transmitida
-        diagH = torch.diagonal(self.channel_matrix, dim1=0, dim2=1)  # [num_links]
+        # 1. Señal útil (Signal)
+        # Diagonal de H: ganancia directa del transmisor a su receptor
+        diagH = torch.diagonal(self.channel_matrix) # [num_links]
+        # Potencia recibida útil = H_ii * Potencia_elegida
         signal = diagH.unsqueeze(-1) * self.phi  # [num_links, num_channels]
 
-        # Interferencia: señal recibida de otros transmisores
-        # Máscara para eliminar diagonal
-        mask = 1 - torch.eye(num_links, device=self.device, dtype=torch.float32)
-        H_off_diag = self.channel_matrix * mask  # [num_links, num_links]
+        # 2. Interferencia Co-Canal (mismo canal)
+        # H_off_diag tiene ceros en la diagonal
+        mask = 1 - torch.eye(self.num_links, device=self.device)
+        H_off_diag = self.channel_matrix * mask
+        interf_co_channel = torch.matmul(H_off_diag, self.phi) # [num_links, num_channels]
+
+        # 3. Interferencia de Canales Adyacentes (ACI) - CRÍTICO PARA 2.4GHz
+        # Simulamos que el canal N recibe un % de potencia del canal N-1 y N+1
+        # alpha = factor de solapamiento (ej. 0.3 o 30% de interferencia)
+        alpha = 0.3 
         
-        # Interferencia total por receptor y canal
-        interference = torch.matmul(H_off_diag, self.phi)  # [num_links, num_channels]
+        # Desplazar phi a la derecha (interferencia del canal anterior)
+        # El canal 0 no recibe del -1, por eso padding con 0
+        phi_right = torch.cat([
+            torch.zeros((self.num_links, 1), device=self.device), 
+            self.phi[:, :-1]
+        ], dim=1)
+        
+        # Desplazar phi a la izquierda (interferencia del canal siguiente)
+        phi_left = torch.cat([
+            self.phi[:, 1:], 
+            torch.zeros((self.num_links, 1), device=self.device)
+        ], dim=1)
+        
+        # La interferencia cruzada viene de TODOS los enlaces (incluido uno mismo si usara varios canales)
+        # Multiplicamos la matriz completa H por las potencias desplazadas
+        interf_aci_left = torch.matmul(self.channel_matrix, phi_left)
+        interf_aci_right = torch.matmul(self.channel_matrix, phi_right)
+        
+        interf_total = interf_co_channel + alpha * (interf_aci_left + interf_aci_right)
 
-        # SINR por enlace y canal
+        # 4. Cálculo de SINR y Rates
         eps_safe = 1e-12
-        snr = signal / (self.sigma + interference + eps_safe)
-
-        # Rate total por enlace (suma sobre canales)
-        rates = torch.sum(torch.log1p(snr), dim=-1)  # [num_links]
+        snr = signal / (self.sigma + interf_total + eps_safe)
+        
+        # Shannon Capacity: Sumamos sobre canales (normalmente un link usa solo 1, el resto es 0)
+        rates = torch.sum(torch.log1p(snr), dim=-1) # [num_links]
 
         return rates
 

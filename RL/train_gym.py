@@ -49,7 +49,7 @@ def train_network_env():
         channel_matrix_iter=channel_matrix_iter
     )
     
-    # ✅ Verificar entorno
+    # Verificar entorno
     print("\n✓ Verificando entorno...")
     try:
         check_env(env, warn=True, skip_render_check=True)
@@ -156,13 +156,14 @@ def evaluate_model(model, n_episodes=10):
     
     channel_matrix_iter = load_channel_matrix(
         building_id=990,
-        b5g=False,
+        b5g=False,  # 2.4 GHz
         num_links=num_links,
-        synthetic=False,
+        synthetic=False,  # True para datos sintéticos
         shuffle=True,
-        repeat=True
+        repeat=True  # Reinicia automáticamente
     )
     
+    # Crear entorno
     eval_env = NetworkEnvironment(
         num_links=num_links,
         num_channels=num_channels,
