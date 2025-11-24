@@ -42,7 +42,7 @@ def train_network_env():
         num_channels=num_channels,
         num_power_levels=num_power_levels,
         max_steps=max_steps,
-        eps=5e-4,
+        eps=5e-3,
         max_antenna_power_dbm=6,
         sigma=1e-4,
         device="cpu",
@@ -119,7 +119,7 @@ def train_network_env():
     print("="*60)
     
     # Entrenar
-    total_timesteps = 100000
+    total_timesteps = 1000000
     model.learn(
         total_timesteps=total_timesteps,
         callback=checkpoint_callback,
@@ -169,7 +169,7 @@ def evaluate_model(model, n_episodes=10):
         num_channels=num_channels,
         num_power_levels=num_power_levels,
         max_steps=max_steps,
-        eps=5e-4,
+        eps=5e-3,
         max_antenna_power_dbm=6,
         sigma=1e-4,
         device="cpu",

@@ -130,17 +130,17 @@ class NetworkEnvironment(gym.Env):
         # Convertir acción a phi
         self.phi = self._actions_to_phi(action)
 
-        # Calcular restricción de potencia
+        # 1. Calcular restricción de potencia (Violation P_used - P_max)
         self.power_constr = self._calculate_power_constraint()
 
-        # Actualizar multiplicadores de Lagrange
-        self.mu_k = self._mu_update_per_ap()
-
-        # Calcular rates
+        # 2. Calcular rates
         self.rate = self._get_rates()
 
-        # Calcular recompensa
+        # 3. Calcular recompensa
         reward = self._calculate_reward()
+
+        # 4. ACTUALIZAR multiplicadores de Lagrange (Para la siguiente iteración)
+        self.mu_k = self._mu_update_per_ap() 
 
         # Obtener observación
         obs = self._get_observation()
@@ -148,8 +148,7 @@ class NetworkEnvironment(gym.Env):
         terminated = False
         truncated = self.step_count >= self.max_steps
 
-        # Extraer qué canal y nivel de potencia se eligió para visualización
-        # Esto nos permite 'ver' la decisión
+        # Extraer qué canal y nivel de potencia se eligió para visualización (Se mantiene)
         allocation_log = []
         for link_idx, act in enumerate(action):
             act = int(act)
@@ -167,9 +166,8 @@ class NetworkEnvironment(gym.Env):
             "power_constraint": float(torch.mean(self.power_constr).item()),
             "rate": float(torch.sum(self.rate).item()),
             "avg_mu": float(torch.mean(self.mu_k).item()),
-            # Nuevos campos para debug:
-            "action_phi": self.phi.cpu().numpy().copy(), # La matriz real de potencias
-            "allocation_desc": allocation_log            # Lista legible [(canal, potencia), ...]
+            "action_phi": self.phi.cpu().numpy().copy(),
+            "allocation_desc": allocation_log
         }
 
         return obs, reward, terminated, truncated, info
@@ -265,42 +263,41 @@ class NetworkEnvironment(gym.Env):
 
     def _get_rates(self):
         """
-        Calcula tasa considerando interferencia co-canal y canales adyacentes.
+        Calcula tasa considerando interferencia co-canal y canales adyacentes (ACI).
         """
+        # La matriz H ya está en self.channel_matrix
+        H = self.channel_matrix
+        
         # 1. Señal útil (Signal)
-        # Diagonal de H: ganancia directa del transmisor a su receptor
-        diagH = torch.diagonal(self.channel_matrix) # [num_links]
-        # Potencia recibida útil = H_ii * Potencia_elegida
-        signal = diagH.unsqueeze(-1) * self.phi  # [num_links, num_channels]
+        # H_ii * phi_ic (potencia del link i en el canal c)
+        signal = H.diag().unsqueeze(-1) * self.phi  # [num_links, num_channels]
 
-        # 2. Interferencia Co-Canal (mismo canal)
-        # H_off_diag tiene ceros en la diagonal
+        # 2. Interferencia Co-Canal (mismo canal 'c')
+        # Suma de (H_ji * phi_jc) para todos los j != i
         mask = 1 - torch.eye(self.num_links, device=self.device)
-        H_off_diag = self.channel_matrix * mask
+        H_off_diag = H * mask
         interf_co_channel = torch.matmul(H_off_diag, self.phi) # [num_links, num_channels]
 
-        # 3. Interferencia de Canales Adyacentes (ACI) - CRÍTICO PARA 2.4GHz
-        # Simulamos que el canal N recibe un % de potencia del canal N-1 y N+1
-        # alpha = factor de solapamiento (ej. 0.3 o 30% de interferencia)
+        # 3. Interferencia de Canales Adyacentes (ACI)
+        # Factor de solapamiento típico para 2.4GHz: alpha ≈ 0.3 a 0.5
+        # 
         alpha = 0.3 
         
-        # Desplazar phi a la derecha (interferencia del canal anterior)
-        # El canal 0 no recibe del -1, por eso padding con 0
-        phi_right = torch.cat([
+        # Potencia total en canal c-1 que afecta a canal c
+        phi_left = torch.cat([
             torch.zeros((self.num_links, 1), device=self.device), 
             self.phi[:, :-1]
         ], dim=1)
         
-        # Desplazar phi a la izquierda (interferencia del canal siguiente)
-        phi_left = torch.cat([
+        # Potencia total en canal c+1 que afecta a canal c
+        phi_right = torch.cat([
             self.phi[:, 1:], 
             torch.zeros((self.num_links, 1), device=self.device)
         ], dim=1)
         
-        # La interferencia cruzada viene de TODOS los enlaces (incluido uno mismo si usara varios canales)
-        # Multiplicamos la matriz completa H por las potencias desplazadas
-        interf_aci_left = torch.matmul(self.channel_matrix, phi_left)
-        interf_aci_right = torch.matmul(self.channel_matrix, phi_right)
+        # Multiplicar por H para obtener la interferencia recibida
+        interf_aci_left = torch.matmul(H, phi_left)
+        interf_aci_right = torch.matmul(H, phi_right)
         
         interf_total = interf_co_channel + alpha * (interf_aci_left + interf_aci_right)
 
@@ -308,7 +305,8 @@ class NetworkEnvironment(gym.Env):
         eps_safe = 1e-12
         snr = signal / (self.sigma + interf_total + eps_safe)
         
-        # Shannon Capacity: Sumamos sobre canales (normalmente un link usa solo 1, el resto es 0)
+        # Shannon Capacity (el logaritmo es suficiente ya que el ancho de banda es fijo)
+        # Sumamos sobre canales (solo 1 canal tiene potencia > 0)
         rates = torch.sum(torch.log1p(snr), dim=-1) # [num_links]
 
         return rates
@@ -343,12 +341,26 @@ class NetworkEnvironment(gym.Env):
     
     def _get_observation(self):
         """
-        Construye observación para el agente
-        
-        Returns: dict con 'channel_matrix' y 'mu_k'
+        Construye observación para el agente, aplicando normalización (escala logarítmica).
         """
+        # Clonar la matriz para evitar modificarla en el entorno (es usada en _get_rates)
+        matrix = self.channel_matrix.clone()
+        
+        # 1. Aplicar Logaritmo (dB-like) para comprimir el rango 0-100 a un valor más pequeño
+        # Usamos log1p para manejar valores muy pequeños o 0 (aunque tu matriz no debería tener 0s puros)
+        mask = matrix > 0 # Asegura que solo transformamos los valores positivos de ganancia
+        matrix[mask] = torch.log1p(matrix[mask])
+        
+        # 2. Normalizar: Dividir por un valor para que el máximo sea aprox 1
+        # log(100) ≈ 4.6. Dividir por 5.0 asegura un buen rango.
+        matrix[mask] = matrix[mask] / 5.0 
+        
+        # 3. Asegurar que los límites del Box son correctos (si no lo hiciste antes)
+        # Esto solo es un recordatorio, el cambio principal debe estar en __init__
+        # self.observation_space['channel_matrix'].high debe ser 1.0
+        
         return {
-            'channel_matrix': self.channel_matrix.cpu().numpy().astype(np.float32),
+            'channel_matrix': matrix.cpu().numpy().astype(np.float32),
             'mu_k': self.mu_k.cpu().numpy().astype(np.float32)
         }
 
