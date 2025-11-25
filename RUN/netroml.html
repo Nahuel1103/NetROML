@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {
+    margin: 0;
+    background-color: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'Inter', sans-serif;
+    color: #4CAF50; /* A tech-green for the vibe */
+  }
+
+  svg {
+    width: 80vmin;
+    height: 80vmin;
+    max-width: 800px;
+    max-height: 800px;
+    overflow: visible; /* Allow filters to bleed */
+  }
+
+  /* Define the brand colors */
+  :root {
+    --net-roml-blue: #4285F4; /* Primary blue from the logo */
+    --net-roml-gray: #5F6368; /* Text gray from the logo */
+    --tech-green-light: #4CAF50;
+    --tech-green-dark: #2E7D32;
+    --glitch-red: #FF0055;
+    --glitch-cyan: #00FFFF;
+  }
+
+  /* Base text styles */
+  .logo-text {
+    font-family: Arial, sans-serif; /* Use a common sans-serif or embed a specific one */
+    font-weight: bold;
+    fill: var(--net-roml-gray);
+    font-size: 70px;
+  }
+
+  /* --- ANIMATIONS --- */
+
+  /* Global Container Animation */
+  .logo-container {
+    transform-origin: center center;
+    animation: pulseGlow 5s infinite ease-in-out;
+  }
+
+  /* Filter for subtle glow and distortion */
+  #logo-filter {
+    filter: url(#digital-glitch);
+  }
+  
+  /* Node Pulse */
+  .node {
+    fill: var(--net-roml-blue);
+    transform-origin: center center;
+    animation: nodePulse 1.5s infinite ease-in-out;
+    filter: drop-shadow(0 0 5px var(--net-roml-blue));
+  }
+  .node-0 { animation-delay: 0s; }
+  .node-1 { animation-delay: 0.2s; }
+  .node-2 { animation-delay: 0.4s; }
+  .node-3 { animation-delay: 0.6s; }
+  
+  @keyframes nodePulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.2); opacity: 0.7; }
+  }
+
+  /* Line Draw Effect */
+  .net-line {
+    stroke: var(--net-roml-blue);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dasharray: 100; /* Needs to be larger than path length */
+    stroke-dashoffset: 100;
+    animation: drawLine 2s forwards ease-out;
+    filter: drop-shadow(0 0 3px var(--net-roml-blue));
+  }
+  .line-0 { animation-delay: 0.5s; }
+  .line-1 { animation-delay: 0.7s; }
+  .line-2 { animation-delay: 0.9s; }
+  .line-3 { animation-delay: 1.1s; } /* This line connects to the rightmost node */
+
+  @keyframes drawLine {
+    to { stroke-dashoffset: 0; }
+  }
+
+  /* Signal Wave Animation */
+  .signal-wave {
+    stroke: var(--net-roml-blue);
+    stroke-width: 3;
+    fill: none;
+    stroke-linecap: round;
+    opacity: 0;
+    animation: emitSignal 2s infinite ease-out;
+    filter: drop-shadow(0 0 5px var(--net-roml-blue));
+  }
+  .wave-0 { animation-delay: 1s; }
+  .wave-1 { animation-delay: 1.3s; }
+  .wave-2 { animation-delay: 1.6s; }
+
+  @keyframes emitSignal {
+    0% { transform: scale(0.5); opacity: 0; stroke-width: 0; }
+    20% { opacity: 1; stroke-width: 3; }
+    80% { transform: scale(1.5); opacity: 0; stroke-width: 1; }
+    100% { transform: scale(1.5); opacity: 0; stroke-width: 0; }
+  }
+
+  /* Text Reveal */
+  #text-group {
+    opacity: 0;
+    transform: translateX(-20px);
+    animation: textSlideIn 1.5s 1.5s forwards ease-out; /* Starts after icon animations */
+  }
+
+  @keyframes textSlideIn {
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* Background Pulse Glow (on body or main container) */
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 15px var(--net-roml-blue), 0 0 30px var(--glitch-cyan) inset; }
+    50% { box-shadow: 0 0 25px var(--net-roml-blue), 0 0 50px var(--glitch-red) inset; }
+  }
+
+  /* Glitch Effect (CSS filter animation) */
+  .glitch-text {
+    filter: url(#text-glitch-filter);
+  }
+
+  @keyframes glitchX {
+    0%, 100% { transform: translateX(0px) translateY(0px); }
+    10% { transform: translateX(2px) translateY(2px); filter: url(#text-glitch-filter-red); }
+    20% { transform: translateX(-2px) translateY(-2px); filter: url(#text-glitch-filter-cyan); }
+    30% { transform: translateX(1px) translateY(1px); filter: url(#text-glitch-filter-red); }
+    40% { transform: translateX(-1px) translateY(-1px); filter: url(#text-glitch-filter-cyan); }
+    50% { transform: translateX(0px) translateY(0px); filter: url(#text-glitch-filter); }
+    60% { transform: translateX(3px) translateY(3px); filter: url(#text-glitch-filter-red); }
+    70% { transform: translateX(-3px) translateY(-3px); filter: url(#text-glitch-filter-cyan); }
+    80% { transform: translateX(1px) translateY(1px); filter: url(#text-glitch-filter-red); }
+    90% { transform: translateX(-1px) translateY(-1px); filter: url(#text-glitch-filter-cyan); }
+  }
+  
+  .glitch-loop {
+    animation: glitchX 1.5s infinite step-end;
+    animation-delay: 2.5s; /* Start after initial reveal */
+  }
+
+</style>
+</head>
+<body>
+
+<svg viewBox="0 0 600 200">
+  <defs>
+    <filter id="digital-glitch" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.005 0.05" numOctaves="1" result="noise" />
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="2" xChannelSelector="R" yChannelSelector="G" result="distorted" />
+        <feGaussianBlur in="distorted" stdDeviation="0.5" result="blurred" />
+        <feMerge>
+            <feMergeNode in="blurred"/>
+            <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+    </filter>
+
+    <filter id="text-glitch-filter" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="blur"/>
+        <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 -0.05" result="main-alpha"/>
+        <feOffset in="main-alpha" dx="0" dy="0" result="offset-main"/>
+        <feMerge>
+            <feMergeNode in="offset-main"/>
+            <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+    </filter>
+    <filter id="text-glitch-filter-red" x="-50%" y="-50%" width="200%" height="200%">
+        <feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0.2  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="red-channel"/>
+        <feOffset in="red-channel" dx="2" dy="2" result="offset-red"/>
+        <feMerge>
+            <feMergeNode in="offset-red"/>
+            <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+    </filter>
+    <filter id="text-glitch-filter-cyan" x="-50%" y="-50%" width="200%" height="200%">
+        <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 1 0 0 0.2  0 0 1 0 0.2  0 0 0 1 0" result="cyan-channel"/>
+        <feOffset in="cyan-channel" dx="-2" dy="-2" result="offset-cyan"/>
+        <feMerge>
+            <feMergeNode in="offset-cyan"/>
+            <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+    </filter>
+
+  </defs>
+
+  <g class="logo-container" id="logo-filter">
+    <g transform="translate(100, 100) scale(1.5)">
+      <circle cx="0" cy="0" r="10" class="node node-0" />
+      <circle cx="-30" cy="30" r="10" class="node node-1" />
+      <circle cx="30" cy="30" r="10" class="node node-2" />
+      <circle cx="60" cy="0" r="10" class="node node-3" />
+
+      <line x1="0" y1="0" x2="-30" y2="30" class="net-line line-0" />
+      <line x1="0" y1="0" x2="30" y2="30" class="net-line line-1" />
+      <line x1="30" y1="30" x2="60" y2="0" class="net-line line-2" />
+      <line x1="0" y1="0" x2="60" y2="0" class="net-line line-3" /> 
+
+      <path d="M 60 0 Q 70 -15 80 0" class="signal-wave wave-0" />
+      <path d="M 60 0 Q 80 -25 100 0" class="signal-wave wave-1" />
+      <path d="M 60 0 Q 90 -35 120 0" class="signal-wave wave-2" />
+    </g>
+
+    <g id="text-group" transform="translate(250, 110)">
+      <text class="logo-text glitch-text glitch-loop">NetROML</text>
+    </g>
+  </g>
+</svg>
+
+</body>
+</html>

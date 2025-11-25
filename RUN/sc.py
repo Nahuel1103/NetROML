@@ -1,7 +1,7 @@
 import pickle
 import numpy as np
 import os
-from networks import build_adhoc_network, build_line_network, build_cellular_network, build_adhoc_network_sc, build_adhoc_network_3d
+from networks import build_adhoc_network, build_adhoc_network_variable
 import networkx as nx
 
 
@@ -11,9 +11,10 @@ pl = 1e-5
 
 graphs = []
 for _ in range(num_graphs):
-    pl = np.random.rand()
-    L = build_adhoc_network_3d(pl)
+    pl = np.random.uniform(2.5, 3.5)
+    L = build_adhoc_network_variable(num_links,pl)
     graphs.append(L)
+
 
 # Guarda el archivo en la ruta esperada por tu función
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +24,5 @@ output_path = os.path.join(output_dir, 'sc_graphs.pkl')
 with open(output_path, 'wb') as f:
     pickle.dump(graphs, f)
 
-print(L)
 
 print(f"Guardados {num_graphs} grafos sintéticos de {num_links} links en {output_path}")

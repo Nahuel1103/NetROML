@@ -90,7 +90,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     power_values = []  
 
 
-    for epoc in range(epochs):
+    for epoc in range  (epochs):
         print("Epoch number: {}".format(epoc))
         for batch_idx, data in enumerate(dataloader):
 
@@ -238,13 +238,13 @@ if __name__ == '__main__':
 
     parser.add_argument('--building_id', type=int, default=990)
     parser.add_argument('--b5g', type=int, default=0)
-    parser.add_argument('--num_links', type=int, default=6)
+    parser.add_argument('--num_links', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=3)
     parser.add_argument('--k', type=int, default=3)
     parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-4)
-    parser.add_argument('--mu_lr', type=float, default=5e-3)
+    parser.add_argument('--mu_lr', type=float, default=5e-4)
     parser.add_argument('--synthetic', type=int, default=1)
     parser.add_argument('--num_noise_per_graph', type=int, default=10,
                        help='Número de samples de ruido blanco por grafo (estrategia espectral)')
