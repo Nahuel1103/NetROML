@@ -3,7 +3,8 @@ import torch
 from stable_baselines3 import PPO
 from gnn_policy import GNNActorCriticPolicy
 from envs import APNetworkEnv
-from utils import load_channel_matrix
+from utils import load_channel_matrix, get_gnn_inputs, graphs_to_tensor, graphs_to_tensor_synthetic
+from torch_geometric.loader import DataLoader
 
 
 # def channel_iterator(num_graphs=1000, n_APs=5):
@@ -17,14 +18,28 @@ def train_gnn_policy():
     num_channels = 3
     n_power_levels = 2
 
-    H_iterator = load_channel_matrix(
-            building_id=990,
-            b5g=False,  # 2.4 GHz
-            num_links=n_APs,
-            synthetic=False,  # Cambiar a True para usar datos sintéticos
-            shuffle=True,
-            repeat=True  # Reinicia automáticamente el iterador
-        )
+    # Cargar datos y crear DataLoader
+    # x_tensor, channel_matrix_tensor = graphs_to_tensor(
+    #     train=True, num_links=n_APs, num_features=1, b5g=False, building_id=990
+    # )
+    # Para usar datos sintéticos (comentar lo de arriba y descomentar esto si se desea)
+    x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
+         num_links=n_APs, num_features=1, b5g=False, building_id=990,
+         base_path='/home/bruno/Proyecto/NetROML/RUN/Bruno/preprod/data/'
+    )
+    
+    dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+    # Batch size 1 porque el entorno procesa un grafo a la vez por ahora
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True, drop_last=True)
+
+    def dataloader_generator(loader):
+        while True:
+            for data in loader:
+                # data.matrix es [1, N, N] porque batch_size=1
+                # Lo convertimos a numpy [N, N]
+                yield data.matrix.squeeze(0).numpy()
+
+    H_iterator = dataloader_generator(dataloader)
 
     env = APNetworkEnv(
         n_APs=n_APs,

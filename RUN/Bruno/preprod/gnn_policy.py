@@ -62,6 +62,11 @@ class GNNFeaturesExtractor(BaseFeaturesExtractor):
             edge_index = H[i].nonzero(as_tuple=False).t()
             edge_attr = H[i][edge_index[0], edge_index[1]]
 
+            # Normalización de edge_attr (importante para TAGConv con pesos grandes)
+            norm = torch.norm(H[i], p=2)
+            norm = norm if norm > 1e-12 else 1.0
+            edge_attr = edge_attr / norm
+
             # Pasar por GNN → [n_APs, hidden_dim]
             gnn_out = self.gnn(x, edge_index, edge_attr)
             outputs.append(gnn_out)
@@ -158,7 +163,7 @@ class GNNActorCriticPolicy(ActorCriticPolicy):
 
         # Muestreamos o tomamos acción determinística
         actions = distribution.get_actions(deterministic=deterministic)
-        log_probs = distribution.log_prob(actions).unsqueeze(1) #unsqueeze para que tenga shape [batch, 1]
+        log_probs = distribution.log_prob(actions) # SB3 espera [batch], no [batch, 1]
 
         return actions, value, log_probs
     

@@ -85,7 +85,7 @@ def transform_matrix(adj_matrix, all=True):
 def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, building_id=990, base_path=None):
     band = ['2_4', '5']
     if base_path is None:
-        path = '/Users/mauriciovieirarodriguez/project/NetROML/PP/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+        path = '/home/bruno/Proyecto/wireless-learning-main/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
     else:
         path = base_path
     file_name = ('train_' if train else 'val_') + f"{band[b5g]}_graphs_{building_id}.pkl"
@@ -107,10 +107,13 @@ def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, buildin
     return x_tensor, channel_matrix_tensor
 
 
-def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
+def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990, base_path=None):
     
     band = ['2_4', '5']
-    path = '/Users/mauriciovieirarodriguez/project/NetROML/Primer problema de optimización/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    if base_path is None:
+        path = '/home/bruno/Proyecto/wireless-learning-main/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+    else:
+        path = base_path
     file_name = 'synthetic_graphs.pkl'
     with open(path + file_name, 'rb') as archivo:
         graphs = pickle.load(archivo)
