@@ -23,11 +23,15 @@ def train_gnn_policy():
     #     train=True, num_links=n_APs, num_features=1, b5g=False, building_id=990
     # )
     # Para usar datos sintéticos (comentar lo de arriba y descomentar esto si se desea)
-    x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
+    # x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
+    #      num_links=n_APs, num_features=1, b5g=False, building_id=990,
+    #      base_path='/home/bruno/Proyecto/NetROML/RUN/Bruno/preprod/data/'
+    # )
+    x_tensor, channel_matrix_tensor = graphs_to_tensor(
          num_links=n_APs, num_features=1, b5g=False, building_id=990,
-         base_path='/home/bruno/Proyecto/NetROML/RUN/Bruno/preprod/data/'
-    )
+        )
     
+    # Crear DataLoader
     dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
     # Batch size 1 porque el entorno procesa un grafo a la vez por ahora
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True, drop_last=True)
