@@ -67,13 +67,11 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     mu_lr_str = str(f"{mu_lr:.0e}")
 
     # --- Data Loading (for the Environment) ---
-    # We need an iterator for the environment to get channel matrices
     if synthetic:
-        # We use the same synthetic generation but just to get the list of matrices
         _, channel_matrix_tensor = graphs_to_tensor_synthetic(
             num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
         )
-        # Convert tensor to list of numpy arrays for the iterator
+        # ESTO ES DIFERENTE
         matrix_list = [m.numpy() for m in channel_matrix_tensor]
     else:
         _, channel_matrix_tensor = graphs_to_tensor(

@@ -166,6 +166,22 @@ class GNNActorCriticPolicy(ActorCriticPolicy):
         log_probs = distribution.log_prob(actions) # SB3 espera [batch], no [batch, 1]
 
         return actions, value, log_probs
+
+    def get_distribution(self, obs: torch.Tensor) -> any:
+        """
+        Obtiene la distribución de acciones para una observación dada.
+        Necesario para extraer probabilidades manualmente.
+        """
+        features_per_node = self.features_extractor(obs)
+        batch_size = features_per_node.shape[0]
+        
+        features_flat = features_per_node.reshape(-1, self.hidden_dim)
+        logits_flat = self.actor_head(features_flat)
+        
+        logits_per_node = logits_flat.reshape(batch_size, self.n_APs, self.num_actions_per_node)
+        logits = logits_per_node.reshape(batch_size, -1)
+        
+        return self._get_action_dist_from_latent(logits)
     
 
     def predict_values(self, obs):
