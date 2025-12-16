@@ -208,6 +208,7 @@ class APNetworkEnv(gym.Env):
         
 
         # Inicializamos estado nuevo con ceros
+        # ¿necesario?
         new_state = np.zeros((self.n_APs, 2), dtype=np.float32)
 
         # Máscara con APs activos (no apagados)

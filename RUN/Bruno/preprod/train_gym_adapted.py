@@ -67,18 +67,29 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     mu_lr_str = str(f"{mu_lr:.0e}")
 
     # --- Data Loading (for the Environment) ---
+    # We need an iterator for the environment to get channel matrices
     if synthetic:
+        # We use the same synthetic generation but just to get the list of matrices
         _, channel_matrix_tensor = graphs_to_tensor_synthetic(
             num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
         )
-        # ESTO ES DIFERENTE
+# ESTO ES DIFERENTE
         matrix_list = [m.numpy() for m in channel_matrix_tensor]
+
+        # El chino tenia:
+        # dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+        # dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
     else:
         _, channel_matrix_tensor = graphs_to_tensor(
             train=True, num_links=num_links, num_features=1, b5g=b5g, building_id=building_id
         )
+# ESTO ES DIFERENTE
         matrix_list = [m.numpy() for m in channel_matrix_tensor]
+    # El chino tenia:
+    # dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
+    # dataloader = DataLoader(dataset[:7000], batch_size=batch_size, shuffle=True, drop_last=True)
 
+    #ESTO ES EN LUGAR DEL DATA LOADER
     # Create an infinite iterator for the environment
     def infinite_iterator(data_list):
         while True:
@@ -91,14 +102,17 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
     mu_k = torch.ones((1, 1), requires_grad=False)
 
-    pmax = num_links * num_channels # Note: This pmax definition in original might be different from Env's Pmax
+    #pmax = num_links * num_channels
+    pmax = 0.7 #por como definimos nosotros el pmax
 
     # ---- Definición de red ----
     input_dim = 1
     hidden_dim = 1
 
     # Definí los niveles de potencia discretos
-    power_levels = torch.tensor([p0/2, p0])   # ej. 2 niveles
+    #power_levels = torch.tensor([p0/2, p0])   # ej. 2 niveles
+    power_levels = torch.tensor([p0])   # caso mas basico
+    
     num_power_levels = len(power_levels)
 
     # Número total de acciones: no_tx + (canales * niveles de potencia)
@@ -117,7 +131,6 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     probs_values = []   
 
     # --- Environment Setup ---
-    # Note: Env Pmax is relative to P0. Original pmax seems to be total power sum constraint?
     # In original: power_constraint = sum(phi) - pmax.
     # In Env: power_penalty = mu * (avg_power - Pmax).
     # We will trust the Env's internal reward mechanism for now, 
@@ -142,12 +155,15 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
     print(f"Starting training on {device}...")
 
-    print(f"Starting training on {device}...")
-
     # --- Real-time Plotting Setup ---
     if real_time_plotting:
         visualizer = TrainingVisualizer(num_links, num_channels)
     # --------------------------------
+
+    episode_rewards = []
+    episode_loss = []
+    episode_probs_accum = [] # To store probs of each step in this episode
+    episode_off_probs_accum = [] # To store off probs of each step
 
     for epoc in range(epochs):
         # In this adapted version, one epoch = one episode (or a fixed number of steps)
@@ -158,18 +174,16 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         terminated = False
         truncated = False
         
-        episode_rewards = []
-        episode_loss = []
-        episode_probs_accum = [] # To store probs of each step in this episode
-        episode_off_probs_accum = [] # To store off probs of each step
+        # episode_rewards = []
+        # episode_loss = []
+        # episode_probs_accum = [] # To store probs of each step in this episode
+        # episode_off_probs_accum = [] # To store off probs of each step
         
         # We can accumulate gradients over the episode or update every step.
         # Original updates every batch. Here batch_size=1 (implicitly).
         # Let's update every step to mimic SGD.
         
-        steps = 0
         while not (terminated or truncated):
-            steps += 1
             
             # 1. Prepare Data
             data = obs_to_gnn_data(obs, device)
@@ -195,21 +209,21 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             # Actions 1..num_power_levels -> Channel 1
             # Actions num_power_levels+1..2*num_power_levels -> Channel 2
             
-            # Extract probabilities for active actions (excluding action 0)
+            #========== solo para visualizacion ========================================
+            # Extraer probabilidades de las acciones activas (sin off, ese va aparte)
             active_probs = probs[0, :, 1:] # [num_links, num_channels * num_power_levels]
-            
-            # Reshape to [num_links, num_channels, num_power_levels]
+            # Extraer probabilidades de OFF
+            off_probs = probs[0, :, 0] # [num_links]
+
+            # Reshape [num_links, num_channels, num_power_levels]
             probs_reshaped = active_probs.view(num_links, num_channels, num_power_levels)
             channel_probs = probs_reshaped.sum(dim=2) # [num_links, num_channels]
-            
-            # Also get prob of being OFF
-            off_probs = probs[0, :, 0] # [num_links]
             
             # Store for epoch average
             episode_probs_accum.append(channel_probs.detach().cpu().numpy()) # [num_links, num_channels]
             episode_off_probs_accum.append(off_probs.detach().cpu().numpy()) # [num_links]
             
-            print(f"\nStep {steps} Decisions & Probabilities:")
+            print(f"\nStep {env.current_step + 1} Decisions & Probabilities:")
             for i in range(num_links):
                 # Decode action
                 a = actions[0, i].item()
@@ -225,7 +239,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
                 # Format channel probs
                 c_probs_str = ", ".join([f"Ch{c+1}: {p:.2f}" for c, p in enumerate(channel_probs[i].tolist())])
                 print(f"  AP {i}: Decision: {decision_str} | Off Prob: {off_probs[i]:.2f} | {c_probs_str}")
-            # -------------------------------------------
+            #===========================================================================
             
             # Sum log probs for the "joint" action of all APs (centralized training)
             log_p_sum = log_p.sum(dim=1).unsqueeze(-1) # [1, 1]
@@ -283,13 +297,14 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         objective_function_values.append(avg_reward) # Plotting positive reward
         loss_values.append(avg_loss)
 
-        # --- Update Plot using Visualizer ---
+        #========== solo para visualizacion ========================================
+        # --- Actualizar visualizer ---
         if real_time_plotting:
             avg_probs_episode = np.mean(np.array(episode_probs_accum), axis=0) # [num_links, num_channels]
             avg_off_probs_episode = np.mean(np.array(episode_off_probs_accum), axis=0) # [num_links]
             
             visualizer.update(avg_reward, avg_loss, avg_probs_episode, avg_off_probs_episode)
-        # ------------------------------------
+        #===========================================================================
         
         # power_constraint and mu are handled inside env, we could extract from info if needed
         # For now let's just track main objective.
@@ -301,6 +316,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     print("Training finished.")
     
     if real_time_plotting:
+        visualizer.save_plots()
         visualizer.close()
     
     # Save model

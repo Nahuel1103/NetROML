@@ -115,6 +115,14 @@ class TrainingVisualizer:
         # Pause to allow GUI update
         plt.pause(0.01)
 
+    def save_plots(self, prefix='training_results'):
+        """
+        Save the current figures as PDF files.
+        """
+        self.fig1.savefig(f'{prefix}_reward_loss.pdf')
+        self.fig2.savefig(f'{prefix}_probs.pdf')
+        print(f"Saved plots to {prefix}_reward_loss.pdf and {prefix}_probs.pdf")
+
     def close(self):
         plt.ioff()
         # plt.show() # Optional
