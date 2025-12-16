@@ -147,7 +147,8 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         P0=p0,
         Pmax=0.7, # Default in Env, adjust if needed to match original 'pmax' logic
         max_steps=50, # Steps per episode
-        H_iterator=H_iterator
+        H_iterator=H_iterator,
+        include_overlap=False
     )
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

@@ -53,7 +53,7 @@ class APNetworkEnv(gym.Env):
 
     def __init__(self, n_APs=4, num_channels=3, P0=4, n_power_levels=3, 
                  power_levels_explicit=None, Pmax=0.7, max_steps=500, 
-                 H_iterator=None, alpha=0.3):
+                 H_iterator=None, alpha=0.3, include_overlap=False):
         """
         Inicializa el entorno de red de APs.
 
@@ -121,7 +121,7 @@ class APNetworkEnv(gym.Env):
         self.mu_power = np.zeros(self.n_APs, dtype=np.float32)
         self.current_step = 0
         self.power_history = []   # Para guardar el histórico de potencias y calcular el promedio luego
-
+        self.include_overlap = include_overlap
 
 
     def reset(self, seed=None, options=None):
@@ -369,15 +369,18 @@ class APNetworkEnv(gym.Env):
 
         # Interferencia intra-canal (misma frecuencia)
         interf_same = torch.matmul(H, phi) - signal            # [n_APs, num_channels]
+        
+        interf_overlap=0
 
-        # Interferencia por canales solapados
-        interf_overlap = torch.zeros_like(interf_same)
-        for c in range(num_channels):
-            if c > 0:
-                interf_overlap[:, c] += torch.matmul(H, phi[:, c-1])
-            if c < num_channels - 1:
-                interf_overlap[:, c] += torch.matmul(H, phi[:, c+1])
-        interf_overlap *= alpha
+        if self.include_overlap:
+            # Interferencia por canales solapados
+            interf_overlap = torch.zeros_like(interf_same)
+            for c in range(num_channels):
+                if c > 0:
+                    interf_overlap[:, c] += torch.matmul(H, phi[:, c-1])
+                if c < num_channels - 1:
+                    interf_overlap[:, c] += torch.matmul(H, phi[:, c+1])
+            interf_overlap *= alpha
 
         # Denominador total
         denom = sigma + interf_same + interf_overlap
@@ -387,7 +390,7 @@ class APNetworkEnv(gym.Env):
 
         # Tasa Shannon (log(1 + SINR))
         rates = torch.sum(torch.log1p(snr), dim=-1)            # [n_APs]
-
+        print("shape de rates es:", rates.shape)
         return rates
 
     
