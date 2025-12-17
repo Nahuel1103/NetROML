@@ -107,6 +107,7 @@ class VisualizerCallback(BaseCallback):
 
     def _on_training_end(self) -> None:
         if self.visualizer:
+            self.visualizer.save_plots()
             self.visualizer.close()
 
 

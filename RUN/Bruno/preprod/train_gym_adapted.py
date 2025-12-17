@@ -356,11 +356,13 @@ if __name__ == '__main__':
     # parser.add_argument('--batch_size', type=int, default=64) # Not used
     parser.add_argument('--eps', type=float, default=5e-5)
     parser.add_argument('--mu_lr', type=float, default=5e-5)
-    parser.add_argument('--synthetic', type=int, default=1) # Default to synthetic for test
+    parser.add_argument('--synthetic', type=int, default=0) # Default to 0 (Real Data)
+    parser.add_argument('--real_time_plotting', type=int, default=1) # 1 for True, 0 for False
 
     args = parser.parse_args()
     
     run(building_id=args.building_id, b5g=args.b5g, num_links=args.num_links, 
         num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, 
         epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1,
-        real_time_plotting=True)
+        real_time_plotting=bool(args.real_time_plotting))
+```
