@@ -1,0 +1,70 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd"><key id="d2" for="edge" attr.name="weight" attr.type="long"/>
+<key id="d1" for="edge" attr.name="rssi" attr.type="long"/>
+<key id="d0" for="node" attr.name="type" attr.type="string"/>
+<graph edgedefault="directed"><node id="120.228.0.57.52.255">
+  <data key="d0">Client</data>
+</node>
+<node id="44.208.45.125.172.128">
+  <data key="d0">AP</data>
+</node>
+<node id="148.233.121.198.198.71">
+  <data key="d0">Client</data>
+</node>
+<node id="164.186.219.182.232.26">
+  <data key="d0">Client</data>
+</node>
+<node id="172.253.206.125.31.69">
+  <data key="d0">Client</data>
+</node>
+<node id="44.208.45.106.167.16">
+  <data key="d0">AP</data>
+</node>
+<node id="176.197.89.188.18.183">
+  <data key="d0">Client</data>
+</node>
+<node id="44.208.45.127.103.160">
+  <data key="d0">AP</data>
+</node>
+<node id="216.252.147.127.63.210">
+  <data key="d0">Client</data>
+</node>
+<node id="240.3.140.45.251.130">
+  <data key="d0">Client</data>
+</node>
+<node id="40.39.191.157.33.63">
+  <data key="d0">Client</data>
+</node>
+<edge source="44.208.45.125.172.128" target="120.228.0.57.52.255">
+  <data key="d1">-82</data>
+  <data key="d2">38</data>
+</edge>
+<edge source="44.208.45.125.172.128" target="148.233.121.198.198.71">
+  <data key="d1">-80</data>
+  <data key="d2">40</data>
+</edge>
+<edge source="44.208.45.125.172.128" target="164.186.219.182.232.26">
+  <data key="d1">-64</data>
+  <data key="d2">56</data>
+</edge>
+<edge source="44.208.45.125.172.128" target="216.252.147.127.63.210">
+  <data key="d1">-59</data>
+  <data key="d2">61</data>
+</edge>
+<edge source="44.208.45.106.167.16" target="172.253.206.125.31.69">
+  <data key="d1">-48</data>
+  <data key="d2">72</data>
+</edge>
+<edge source="44.208.45.127.103.160" target="176.197.89.188.18.183">
+  <data key="d1">-74</data>
+  <data key="d2">46</data>
+</edge>
+<edge source="44.208.45.127.103.160" target="240.3.140.45.251.130">
+  <data key="d1">-92</data>
+  <data key="d2">28</data>
+</edge>
+<edge source="44.208.45.127.103.160" target="40.39.191.157.33.63">
+  <data key="d1">-65</data>
+  <data key="d2">55</data>
+</edge>
+</graph></graphml>
