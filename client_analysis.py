@@ -34,6 +34,12 @@ def filter_by_clients(df, client_list):
     """
     return df[df['mac_cliente'].isin(client_list)]
 
+def sort_records_by_connection(df):
+    """
+    Sorts the DataFrame by mac_cliente and mac_ap to group measurements.
+    """
+    return df.sort_values(by=['mac_cliente', 'mac_ap']).reset_index(drop=True)
+
 def get_frequency_stats(freq_series):
     """
     Returns basic statistics of client frequencies.
