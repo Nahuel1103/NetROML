@@ -38,6 +38,7 @@ def main():
             client = str(row['mac_cliente'])
             ap = str(row['mac_ap'])
             rssi = int(row['rssi'])
+            banda = int(row['banda'])
             
             # Nodes
             if not G.has_node(client):
@@ -49,7 +50,8 @@ def main():
             weight = 120 + rssi
             
             # Corrected Direction: AP -> Client (Downlink)
-            G.add_edge(ap, client, rssi=rssi, weight=weight)
+            # Added banda attribute
+            G.add_edge(ap, client, rssi=rssi, weight=weight, banda=banda)
             
         # Output filename
         filename = f"graph_t_{t}.graphml"

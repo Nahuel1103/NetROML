@@ -99,7 +99,9 @@ def main():
     # Group by Client-AP
     # Note: We must preserve the order of appearance or simple group?
     # Default pandas groupby preserves order of keys? sort=False
-    grouped = df.groupby(['mac_cliente', 'mac_ap'], sort=False)
+    # Group by Client-AP and Band
+    # We include banda because a client might connect to the same AP on different bands.
+    grouped = df.groupby(['mac_cliente', 'mac_ap', 'banda'], sort=False)
     
     processed_rows = []
     
@@ -110,9 +112,9 @@ def main():
     
     # We iterate groups.
     # IMPORTANT: The user said "Agrupar... para generar UNA conexión por mes".
-    # This implies we merge ALL data for (Client, AP) into one sequence.
+    # This implies we merge ALL data for (Client, AP, Band) into one sequence.
     
-    for (client, ap), group in grouped:
+    for (client, ap, band), group in grouped:
         rssi_seq = process_connection_sequence(group)
         
         # Scheduling
@@ -129,6 +131,7 @@ def main():
             processed_rows.append({
                 'mac_cliente': client,
                 'mac_ap': ap,
+                'banda': band,
                 'rssi': rssi_val,
                 'time_step': start_time + t_offset
             })
