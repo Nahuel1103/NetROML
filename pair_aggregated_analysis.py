@@ -9,9 +9,9 @@ from scipy import stats
 BASE_DIR = 'buildings/1361'
 ANALYSIS_DIR = os.path.join(BASE_DIR, 'analysis_aggregated')
 PLOTS_DIR = os.path.join(ANALYSIS_DIR, 'plots')
-MONTHS = ['03', '05', '07', '09', '11']
-CLIENT = '132.56.56.164.101.173'
-AP = '136.29.252.141.130.32'
+MONTHS = ['02', '03', '04', '05', '06', '07', '08', '09', '10', '11']
+CLIENT = '32.45.7.240.187.6'
+AP = '136.29.252.170.206.224'
 
 def load_aggregated_data():
     all_rssi = []
@@ -107,7 +107,7 @@ def perform_aggregated_stats(rssi_values):
 ## Findings
 The distribution of RSSI values shows a mean of {mean:.4f} dBm. The T-test indicates that this {'is' if t_p_val < 0.05 else 'is not'} significantly different from {pop_mean_ref} dBm. Additionally, the Chi-squared normality test suggests the data {'is not' if chi_p_val < 0.05 else 'is potentially'} normally distributed.
 """
-    with open(os.path.join(ANALYSIS_DIR, 'aggregated_report.md'), 'w') as f:
+    with open(os.path.join(ANALYSIS_DIR, 'aggregated_report_1.md'), 'w') as f:
         f.write(report_content)
 
 def visualize_distribution(rssi_values):
@@ -126,9 +126,9 @@ def visualize_distribution(rssi_values):
     plt.legend()
     
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOTS_DIR, 'aggregated_rssi_distribution.png'))
+    plt.savefig(os.path.join(PLOTS_DIR, 'aggregated_rssi_distribution_1.png'))
     plt.close()
-    print(f"Visualization saved to {os.path.join(PLOTS_DIR, 'aggregated_rssi_distribution.png')}")
+    print(f"Visualization saved to {os.path.join(PLOTS_DIR, 'aggregated_rssi_distribution_1.png')}")
 
 def main():
     if not os.path.exists(ANALYSIS_DIR):
