@@ -6,11 +6,11 @@ from collections import defaultdict
 import glob
 
 # Constants
-TARGET_BUILDINGS = {'84', '814', '839', '842', '990', '1361'}
+TARGET_BUILDINGS = {'990'}
 SCRIPT_DIR = os.path.dirname(os.path.abspath("NetROML"))
 DATA_DIR = os.path.join(SCRIPT_DIR, "Datos_WiFi_Ceibal")
-MAPPING_FILE = os.path.join(SCRIPT_DIR, "from_mac_to_building_id.csv")
-BUILDINGS_BASE_DIR = os.path.join(SCRIPT_DIR, "buildings")
+MAPPING_FILE = os.path.join(SCRIPT_DIR, "MAC_AP_building_id.csv")
+BUILDINGS_BASE_DIR = os.path.join(SCRIPT_DIR, "buildings_v2")
 
 def load_mapping():
     """Loads mac_ap -> building_id mapping for target buildings."""
@@ -102,6 +102,9 @@ def process_archives():
             continue
             
         month = match.group(1)
+        if month not in ['02', '03']:
+            continue
+
         time_str = match.group(2).replace('_', ':')
         date_str = filename.split('_')[2] # 2018-MM-DD
         
@@ -126,7 +129,9 @@ def process_archives():
                                             parsed['mac_ap'],
                                             parsed['banda'],
                                             parsed['antena'],
-                                            parsed['rssi']
+                                            parsed['rssi'],
+                                            date_str,
+                                            time_str
                                         ])
         except Exception as e:
             print(f"Error processing {filename}: {e}")
