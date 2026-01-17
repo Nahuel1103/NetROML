@@ -29,7 +29,7 @@ def sort_rssi_files():
                 continue
                 
             # Sort the DataFrame
-            df_sorted = df.sort_values(by=['mac_cliente', 'date', 'time'])
+            df_sorted = df.sort_values(by=['mac_cliente', 'time', 'date'])
             
             # Create client_index
             unique_clients = sorted(df_sorted['mac_cliente'].unique())
@@ -37,9 +37,9 @@ def sort_rssi_files():
             df_sorted['client_index'] = df_sorted['mac_cliente'].map(client_map)
             
             # Create block_index
-            # Group by client, then assign sequential ID to unique (date, time) tuples
+            # Group by client, then assign sequential ID to unique (time, date) tuples
             # ngroup() gives 0-based index for each group (here, each time block within a client)
-            df_sorted['block_index'] = df_sorted.groupby(['mac_cliente', 'date', 'time'], sort=False).ngroup()
+            df_sorted['block_index'] = df_sorted.groupby(['mac_cliente', 'time', 'date'], sort=False).ngroup()
             
             # The above ngroup is global across the groupby if we are not careful. 
             # We want it to be per client, starting at 1.
@@ -53,7 +53,7 @@ def sort_rssi_files():
                 
                 # Using factorize on the tuples of (date, time)
                 # But factorize doesn't guarantee order unless sorted. We are sorted.
-                times = group['date'].astype(str) + '_' + group['time'].astype(str)
+                times = group['time'].astype(str) + '_' + group['date'].astype(str)
                  # factorize returns (codes, uniques). codes are 0-based index of unique values.
                  # if 'sort=True' is not guaranteed to respect occurrence order in older pandas versions 
                  # for factorize, actually pd.factorize(sort=True) sorts unique values.
@@ -68,8 +68,8 @@ def sort_rssi_files():
             # For each client, we want sequential block numbers.
             # rank(method='dense') on the (date,time) column(s)?
             
-            df_sorted['block_index'] = df_sorted.groupby('mac_cliente')[['date', 'time']].apply(
-                lambda x: x.groupby(['date', 'time'], sort=False).ngroup() + 1
+            df_sorted['block_index'] = df_sorted.groupby('mac_cliente')[['time', 'date']].apply(
+                lambda x: x.groupby(['time', 'date'], sort=False).ngroup() + 1
             ).reset_index(level=0, drop=True) 
             # Note: The groupby inside apply needs to verify 'ngroup' behavior or use 'dense' rank
             
@@ -94,7 +94,7 @@ def sort_rssi_files():
             # Since date is YYYY-MM-DD and time is HH:MM, alphabetical order IS chronological order.
             # So rank(method='dense') should work perfectly.
             
-            df_sorted['timestamp_str'] = df_sorted['date'].astype(str) + ' ' + df_sorted['time'].astype(str)
+            df_sorted['timestamp_str'] = df_sorted['time'].astype(str) + ' ' + df_sorted['date'].astype(str)
             df_sorted['block_index'] = df_sorted.groupby('mac_cliente')['timestamp_str'].rank(method='dense').astype(int)
             df_sorted.drop(columns=['timestamp_str'], inplace=True)
             
