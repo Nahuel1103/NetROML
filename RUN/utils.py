@@ -85,7 +85,7 @@ def transform_matrix(adj_matrix, all=True):
 def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, building_id=990, base_path=None):
     band = ['2_4', '5']
     if base_path is None:
-        path = '/Users/mauriciovieirarodriguez/project/NetROML/PP/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
+        path = '/Users/mauriciovieirarodriguez/project/NetROML/graphs/' + str(band[b5g]) + '_' + str(building_id) + '/'
     else:
         path = base_path
     file_name = ('train_' if train else 'val_') + f"{band[b5g]}_graphs_{building_id}.pkl"
@@ -197,18 +197,18 @@ def objective_function(rates):
     return sum_rate
 
 def power_constraint_per_ap(phi, pmax_per_ap):
-    sum_phi_per_link = torch.sum(phi, dim=2)  
-    return (sum_phi_per_link - pmax_per_ap)
+    sum_phi_per_link = torch.sum(phi, dim=-1)  
+    return (sum_phi_per_link - pmax_per_ap.unsqueeze(0))  # [batch, num_links]
 
 def mu_update_per_ap(mu_k, power_constr_per_ap, eps):
     mu_k = mu_k.detach()
     mu_k_update = eps * torch.mean(power_constr_per_ap, dim=0)  # Promedio sobre batch: [num_links]
     mu_k = mu_k + mu_k_update
-    mu_k = torch.max(mu_k, torch.tensor(0.0))
+    mu_k = torch.clamp(mu_k, min=0.0)
     return mu_k
 
 
-def nuevo_get_rates(phi, channel_matrix_batch, sigma, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
+def nuevo_get_rates(phi, channel_matrix_batch, sigma=1e-4, p0=4, alpha=0.3, p_rx_threshold=1e-1, eps=1e-12):
     """
     phi: [batch, num_links, num_channels]  (potencias por enlace por canal)
     channel_matrix_batch: [batch, num_links, num_links] (H matrices según tu transform_matrix)

@@ -164,9 +164,9 @@ def get_gnn_inputs(x_tensor, channel_matrix_tensor, normalize=True, eps=1e-12):
         input_list.append(data)
     return input_list
 
-def load_channel_matrix(building_id, b5g, num_links, synthetic=False, shuffle=True, repeat=True):
+def load_channel_matrix(building_id, b5g, num_links, synthetic=False, shuffle=True, repeat=True, train=True):
     """Carga el dataset de matrices de canal."""
-    print(f"Cargando dataset (building_id={building_id}, synthetic={synthetic})...")
+    print(f"Cargando dataset (building_id={building_id}, synthetic={synthetic}, train={train})...")
     
     if synthetic:
         x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
@@ -179,7 +179,7 @@ def load_channel_matrix(building_id, b5g, num_links, synthetic=False, shuffle=Tr
         channel_matrix_tensor = channel_matrix_tensor[:7000]
     else:
         x_tensor, channel_matrix_tensor = graphs_to_tensor(
-            train=True,
+            train=train,
             num_links=num_links,
             num_features=1,
             b5g=b5g,

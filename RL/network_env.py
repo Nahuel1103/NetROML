@@ -24,10 +24,10 @@ class NetworkEnvironment(gym.Env):
                  num_channels: int = 3,
                  num_power_levels: int = 2,
                  max_steps: int = 100,
-                 eps: float = 5e-4,
+                 eps: float = 5e-5,
                  max_antenna_power_dbm: int = 6,
                  sigma: float = 1e-4,
-                 device: str = "cpu",
+                 device: str = "auto",
                  channel_matrix_iter=None):
         super().__init__()
 
@@ -39,7 +39,18 @@ class NetworkEnvironment(gym.Env):
         self.eps = eps
         self.max_antenna_power_dbm = max_antenna_power_dbm
         self.sigma = sigma
-        self.device = torch.device(device)
+        # Configurar dispositivo
+        if device == "auto":
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+            elif torch.backends.mps.is_available():
+                self.device = torch.device("mps")
+            else:
+                self.device = torch.device("cpu")
+        else:
+            self.device = torch.device(device)
+            
+        print(f"  Using device: {self.device}")
 
         # Guardar el iterador
         self.channel_matrix_source = channel_matrix_iter
@@ -58,8 +69,7 @@ class NetworkEnvironment(gym.Env):
         self._initialize_system_parameters()
 
         # Action space: 0 = no transmitir, 1..C*P = elegir canal+potencia
-        self.num_action_per_link = 1 + self.num_channels * self.num_power_levels
-        self.action_space = spaces.MultiDiscrete([self.num_action_per_link] * self.num_links)
+        self.action_space = spaces.MultiDiscrete([1 + self.num_channels * self.num_power_levels] * self.num_links)
 
         # Observation space
         self.observation_space = spaces.Dict({
@@ -71,7 +81,7 @@ class NetworkEnvironment(gym.Env):
             ),
             'mu_k': spaces.Box(
                 low=0.0,
-                high=1.0,  
+                high=np.inf,  
                 shape=(self.num_links,),
                 dtype=np.float32
             )
@@ -160,6 +170,9 @@ class NetworkEnvironment(gym.Env):
                 pw_idx = act_idx % self.num_power_levels
                 power_val = self.power_levels[pw_idx].item()
                 allocation_log.append((ch, power_val))
+        
+        self.last_action = action
+        self.last_reward = reward
 
         info = {
             "step": self.step_count,
@@ -178,7 +191,7 @@ class NetworkEnvironment(gym.Env):
         self.p0 = 10 ** (self.max_antenna_power_dbm / 10.0)
         
         # Potencia máxima por AP
-        self.pmax_per_ap = (0.95 * self.p0) * torch.ones(
+        self.pmax_per_ap = (0.85 * self.p0) * torch.ones(
             (self.num_links,), device=self.device, dtype=torch.float32
         )
         
@@ -257,9 +270,11 @@ class NetworkEnvironment(gym.Env):
         
         Returns: tensor [num_links] con multiplicadores actualizados
         """
-        mu_k_new = self.mu_k + self.eps * self.power_constr
-        mu_k_new = torch.clamp(mu_k_new, min=0.0)  # Proyección al dominio válido
-        return mu_k_new
+        self.mu_k = self.mu_k.detach()
+        self.mu_k_update = self.eps * self.power_constr
+        self.mu_k = self.mu_k + self.mu_k_update
+        self.mu_k = torch.max(self.mu_k, torch.tensor(0.0))
+        return self.mu_k
 
     def _get_rates(self):
         """
@@ -378,3 +393,53 @@ class NetworkEnvironment(gym.Env):
     def close(self):
         """Cierra el entorno"""
         pass
+
+    def debug_state(self):
+        print("\n--------------------------------------")
+        print("🔎 DEBUG EN EL AMBIENTE")
+        print("--------------------------------------")
+
+        # Observación actual
+        print("OBS (estado):")
+        print(self.state)
+
+        # Acciones aplicadas
+        if hasattr(self, "last_action"):
+            print("\nACCIONES (canal, potencia):")
+            print(self.last_action)
+
+        # Asignación de canales
+        if hasattr(self, "assigned_channels"):
+            print("\nassigned_channels:")
+            print(self.assigned_channels)
+
+        # Potencias aplicadas
+        if hasattr(self, "power_levels"):
+            print("\npower_levels (W o dBm):")
+            print(self.power_levels)
+
+        # Matriz de canales / path loss / fading / etc.
+        if hasattr(self, "channel_matrix"):
+            print("\nchannel_matrix shape:", self.channel_matrix.shape)
+
+        # SINR
+        if hasattr(self, "sinr"):
+            print("\nSINR:")
+            print(self.sinr)
+
+        # Rates
+        if hasattr(self, "rates"):
+            print("\nRATES:")
+            print(self.rates)
+
+        # Reward
+        if hasattr(self, "last_reward"):
+            print("\nREWARD:")
+            print(self.last_reward)
+
+        # Potencia total por AP
+        if hasattr(self, "total_power_per_ap"):
+            print("\ntotal_power_per_ap:")
+            print(self.total_power_per_ap)
+
+        print("--------------------------------------\n")

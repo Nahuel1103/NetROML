@@ -33,7 +33,8 @@ def train_network_env():
         num_links=num_links,
         synthetic=False,  # True para datos sintéticos
         shuffle=True,
-        repeat=True  # Reinicia automáticamente
+        repeat=True,  # Reinicia automáticamente
+        train=True
     )
     
     # Crear entorno
@@ -42,12 +43,14 @@ def train_network_env():
         num_channels=num_channels,
         num_power_levels=num_power_levels,
         max_steps=max_steps,
-        eps=5e-3,
+        eps=5e-5,
         max_antenna_power_dbm=6,
         sigma=1e-4,
-        device="cpu",
+        device="auto",
         channel_matrix_iter=channel_matrix_iter
     )
+
+    # wrapped_env = env.wrappers.RecordEpisodeStatistics(env, 50)
     
     # Verificar entorno
     print("\n✓ Verificando entorno...")
@@ -69,6 +72,7 @@ def train_network_env():
     
     # Test de un paso
     action = env.action_space.sample()
+    print(f"  - Action: {action}")
     obs, reward, terminated, truncated, info = env.step(action)
     print(f"  - Reward: {reward:.4f}")
     print(f"  - Info: {info}")
@@ -96,7 +100,7 @@ def train_network_env():
         policy_kwargs=policy_kwargs,
         learning_rate=3e-4,
         n_steps=2048,      # Horizonte de recolección
-        batch_size=128,    # Tamaño de batch para actualización
+        batch_size=64,    # Tamaño de batch para actualización
         n_epochs=10,       # Épocas de actualización
         gamma=0.99,        # Factor de descuento
         gae_lambda=0.95,   # GAE lambda
@@ -110,7 +114,7 @@ def train_network_env():
     
     # Callbacks para guardar checkpoints
     checkpoint_callback = CheckpointCallback(
-        save_freq=10000,
+        save_freq=100,
         save_path="./checkpoints/",
         name_prefix="gnn_ppo_network"
     )
@@ -119,7 +123,7 @@ def train_network_env():
     print("="*60)
     
     # Entrenar
-    total_timesteps = 1000000
+    total_timesteps = 10000
     model.learn(
         total_timesteps=total_timesteps,
         callback=checkpoint_callback,
@@ -160,7 +164,8 @@ def evaluate_model(model, n_episodes=10):
         num_links=num_links,
         synthetic=False,  # True para datos sintéticos
         shuffle=True,
-        repeat=True  # Reinicia automáticamente
+        repeat=True,  # Reinicia automáticamente
+        train=False  # USAR VALIDACIÓN
     )
     
     # Crear entorno
