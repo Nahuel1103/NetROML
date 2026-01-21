@@ -107,7 +107,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
 
     # ---- Definición de red ----
     input_dim = 1
-    hidden_dim = 1
+    hidden_dim = 5
 
     # Definí los niveles de potencia discretos
     #power_levels = torch.tensor([p0/2, p0])   # ej. 2 niveles
@@ -119,7 +119,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     num_actions = 1 + num_channels * num_power_levels
 
     output_dim = num_actions
-    dropout = False
+    dropout = True
     
     gnn_model = GNN(input_dim, hidden_dim, output_dim, num_layers, dropout, K)
     optimizer = optim.Adam(gnn_model.parameters(), lr=mu_lr)
@@ -145,7 +145,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         num_channels=num_channels,
         n_power_levels=num_power_levels,
         P0=p0,
-        Pmax=0.7, # Default in Env, adjust if needed to match original 'pmax' logic
+        Pmax=0.4, # Default in Env, adjust if needed to match original 'pmax' logic
         max_steps=50, # Steps per episode
         H_iterator=H_iterator,
         include_overlap=False
@@ -165,6 +165,7 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
     episode_loss = []
     episode_probs_accum = [] # To store probs of each step in this episode
     episode_off_probs_accum = [] # To store off probs of each step
+    episode_mu_accum = [] # To store mu of each step
 
     for epoc in range(epochs):
         # In this adapted version, one epoch = one episode (or a fixed number of steps)
@@ -223,6 +224,11 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
             # Store for epoch average
             episode_probs_accum.append(channel_probs.detach().cpu().numpy()) # [num_links, num_channels]
             episode_off_probs_accum.append(off_probs.detach().cpu().numpy()) # [num_links]
+            
+            # Extract mu from observation
+            # obs["mu"] is numpy array [num_links]
+            mu_val = obs["mu"]
+            episode_mu_accum.append(mu_val)
             
             print(f"\nStep {env.current_step + 1} Decisions & Probabilities:")
             for i in range(num_links):
@@ -303,8 +309,9 @@ def run(building_id=990, b5g=False, num_links=5, num_channels=3, num_layers=5, K
         if real_time_plotting:
             avg_probs_episode = np.mean(np.array(episode_probs_accum), axis=0) # [num_links, num_channels]
             avg_off_probs_episode = np.mean(np.array(episode_off_probs_accum), axis=0) # [num_links]
+            avg_mu_episode = np.mean(np.array(episode_mu_accum), axis=0) # [num_links]
             
-            visualizer.update(avg_reward, avg_loss, avg_probs_episode, avg_off_probs_episode)
+            visualizer.update(avg_reward, avg_loss, avg_probs_episode, avg_off_probs_episode, avg_mu_episode)
         #===========================================================================
         
         # power_constraint and mu are handled inside env, we could extract from info if needed
@@ -351,11 +358,11 @@ if __name__ == '__main__':
     parser.add_argument('--num_links', type=int, default=5)
     parser.add_argument('--num_channels', type=int, default=3)
     parser.add_argument('--num_layers', type=int, default=5)
-    parser.add_argument('--k', type=int, default=3)
+    parser.add_argument('--k', type=int, default=5)
     parser.add_argument('--epochs', type=int, default=150)
     # parser.add_argument('--batch_size', type=int, default=64) # Not used
-    parser.add_argument('--eps', type=float, default=5e-5)
-    parser.add_argument('--mu_lr', type=float, default=5e-5)
+    parser.add_argument('--eps', type=float, default=5e-3)
+    parser.add_argument('--mu_lr', type=float, default=5e-3)
     parser.add_argument('--synthetic', type=int, default=0) # Default to 0 (Real Data)
     parser.add_argument('--real_time_plotting', type=int, default=1) # 1 for True, 0 for False
 
@@ -365,4 +372,6 @@ if __name__ == '__main__':
         num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, 
         epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1,
         real_time_plotting=bool(args.real_time_plotting))
-```
+
+
+

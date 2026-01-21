@@ -5,7 +5,7 @@ from torch_geometric.loader import DataLoader
 
 from envs import APNetworkEnv
 from gnn_policy import GNNActorCriticPolicy
-from utils import get_gnn_inputs, graphs_to_tensor_synthetic
+from utils import get_gnn_inputs, graphs_to_tensor
 from realtime_plotter import TrainingVisualizer
 
 def train_reinforce():
@@ -13,16 +13,19 @@ def train_reinforce():
     n_APs = 5
     num_channels = 3
     n_power_levels = 2
-    learning_rate = 1e-4
+    learning_rate = 1e-3
     gamma = 0.99
     num_episodes = 500  # Adjust as needed
     
     # --- Data Loading ---
-    # Using synthetic data for now (same as train_gym.py)
-    # Ensure base_path points to where your data is, or remove it to use default
-    x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
-        num_links=n_APs, num_features=1, b5g=False, building_id=990,
-        base_path='/home/bruno/Proyecto/NetROML/RUN/Bruno/preprod/data/' 
+  #  # Using synthetic data for now (same as train_gym.py)
+# # Ensure base_path points to where your data is, or remove it to use default
+  # x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
+   #     num_links=n_APs, num_features=1, b5g=False, building_id=990,
+    #    base_path='/home/bruno/Proyecto/wireless-learning-main/graphs/2_4_990/' 
+    # Using real data
+    x_tensor, channel_matrix_tensor = graphs_to_tensor(
+        train=True, num_links=n_APs, num_features=1, b5g=False, building_id=990
     )
     
     dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
@@ -44,8 +47,8 @@ def train_reinforce():
         num_channels=num_channels,
         n_power_levels=n_power_levels,
         P0=4,
-        Pmax=0.7,
-        max_steps=50,
+        Pmax=0.4,
+        max_steps=100,
         H_iterator=H_iterator
     )
 
@@ -81,6 +84,7 @@ def train_reinforce():
         
         episode_probs_accum = []
         episode_off_probs_accum = []
+        episode_mu_accum = []
 
         # Collect Episode
         while not (terminated or truncated):
@@ -148,6 +152,10 @@ def train_reinforce():
             
             episode_probs_accum.append(channel_probs.detach().cpu().numpy())
             episode_off_probs_accum.append(off_probs.detach().cpu().numpy())
+            
+            # Accumulate mu
+            if 'mu' in obs:
+                episode_mu_accum.append(obs['mu'])
             # ------------------------------------------------
             
             # Action to numpy for env
@@ -184,7 +192,11 @@ def train_reinforce():
         avg_probs_episode = np.mean(np.array(episode_probs_accum), axis=0)
         avg_off_probs_episode = np.mean(np.array(episode_off_probs_accum), axis=0)
         
-        visualizer.update(avg_reward, avg_loss, avg_probs_episode, avg_off_probs_episode)
+        avg_mu_episode = np.zeros(n_APs)
+        if episode_mu_accum:
+            avg_mu_episode = np.mean(np.array(episode_mu_accum), axis=0)
+        
+        visualizer.update(avg_reward, avg_loss, avg_probs_episode, avg_off_probs_episode, avg_mu_episode)
 
         if (episode + 1) % 10 == 0:
             print(f"Episode {episode + 1}/{num_episodes} | Total Reward: {sum(rewards):.2f} | Loss: {loss.item():.2f}")

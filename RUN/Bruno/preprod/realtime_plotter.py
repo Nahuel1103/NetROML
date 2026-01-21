@@ -85,6 +85,31 @@ class TrainingVisualizer:
         self.fig2.tight_layout()
         self.fig2.subplots_adjust(right=0.85)
         
+        # --- Figure 3: Mu Evolution ---
+        self.fig3, self.axes3 = plt.subplots(num_links, 1, figsize=(8, 2*num_links), sharex=True)
+        if num_links == 1:
+            self.axes3 = [self.axes3]
+            
+        self.lines_mu = []
+        self.texts_mu = []
+        
+        for i in range(num_links):
+            ax = self.axes3[i]
+            line, = ax.plot([], [], 'g-', label=f'Mu AP {i}')
+            self.lines_mu.append(line)
+            
+            text = ax.text(0, 0, '', fontsize=8, color='g')
+            self.texts_mu.append(text)
+            
+            ax.set_ylabel(f'Mu AP {i}')
+            if i == 0:
+                ax.legend(loc='upper left', bbox_to_anchor=(1.05, 1), fontsize='small')
+                
+        self.axes3[-1].set_xlabel('Epoch')
+        self.fig3.suptitle('Mu Evolution per AP')
+        self.fig3.tight_layout()
+        self.fig3.subplots_adjust(right=0.85)
+
         # Data storage
         self.rewards = []
         self.losses = []
@@ -92,8 +117,10 @@ class TrainingVisualizer:
         self.history_probs = [[[] for _ in range(num_channels)] for _ in range(num_links)]
         # history_off[ap_idx] -> list
         self.history_off = [[] for _ in range(num_links)]
+        # history_mu[ap_idx] -> list
+        self.history_mu = [[] for _ in range(num_links)]
 
-    def update(self, reward, loss, avg_channel_probs, avg_off_probs):
+    def update(self, reward, loss, avg_channel_probs, avg_off_probs, avg_mu):
         """
         Update the plots with new data from the latest epoch.
         
@@ -101,6 +128,7 @@ class TrainingVisualizer:
         :param loss: float, average loss of the epoch
         :param avg_channel_probs: np.array of shape (num_links, num_channels)
         :param avg_off_probs: np.array of shape (num_links,)
+        :param avg_mu: np.array of shape (num_links,)
         """
         # --- Update Reward/Loss ---
         self.rewards.append(reward)
@@ -237,12 +265,28 @@ class TrainingVisualizer:
 
             self.axes2[i].relim()
             self.axes2[i].autoscale_view()
+
+        # --- Update Mu ---
+        for i in range(self.num_links):
+            val_mu = avg_mu[i]
+            self.history_mu[i].append(val_mu)
+            x_data_mu = range(len(self.history_mu[i]))
+            self.lines_mu[i].set_xdata(x_data_mu)
+            self.lines_mu[i].set_ydata(self.history_mu[i])
+            
+            self.texts_mu[i].set_text(f'{val_mu:.2f}')
+            self.texts_mu[i].set_position((len(self.history_mu[i]) - 1, val_mu))
+            
+            self.axes3[i].relim()
+            self.axes3[i].autoscale_view()
             
         # Draw
         self.fig1.canvas.draw()
         self.fig1.canvas.flush_events()
         self.fig2.canvas.draw()
         self.fig2.canvas.flush_events()
+        self.fig3.canvas.draw()
+        self.fig3.canvas.flush_events()
         
         # Pause to allow GUI update
         plt.pause(0.01)
@@ -293,7 +337,8 @@ class TrainingVisualizer:
         """
         self.fig1.savefig(f'{prefix}_reward_loss.pdf')
         self.fig2.savefig(f'{prefix}_probs.pdf')
-        print(f"Saved plots to {prefix}_reward_loss.pdf and {prefix}_probs.pdf")
+        self.fig3.savefig(f'{prefix}_mu.pdf')
+        print(f"Saved plots to {prefix}_reward_loss.pdf, {prefix}_probs.pdf and {prefix}_mu.pdf")
 
     def close(self):
         plt.ioff()

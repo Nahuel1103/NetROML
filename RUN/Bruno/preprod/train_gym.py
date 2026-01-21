@@ -19,6 +19,7 @@ class VisualizerCallback(BaseCallback):
         # Accumulators for the current episode/epoch
         self.episode_probs_accum = []
         self.episode_off_probs_accum = []
+        self.episode_mu_accum = []
         self.episode_rewards = []
         
     def _on_training_start(self) -> None:
@@ -35,6 +36,13 @@ class VisualizerCallback(BaseCallback):
             return True
             
         with torch.no_grad():
+            # Extract mu from observation
+            # obs_tensor is a dict for Dict observation space
+            if isinstance(obs_tensor, dict) and 'mu' in obs_tensor:
+                mu = obs_tensor['mu'] # [batch, n_APs]
+                avg_mu_step = mu.mean(dim=0).cpu().numpy()
+                self.episode_mu_accum.append(avg_mu_step)
+            
             dist = self.model.policy.get_distribution(obs_tensor)
             
             # dist.distribution is a list of Categoricals for MultiDiscrete
@@ -98,11 +106,16 @@ class VisualizerCallback(BaseCallback):
         avg_probs = np.mean(np.array(self.episode_probs_accum), axis=0)
         avg_off = np.mean(np.array(self.episode_off_probs_accum), axis=0)
         
-        self.visualizer.update(avg_reward, loss, avg_probs, avg_off)
+        avg_mu = np.zeros(self.num_links)
+        if self.episode_mu_accum:
+            avg_mu = np.mean(np.array(self.episode_mu_accum), axis=0)
+        
+        self.visualizer.update(avg_reward, loss, avg_probs, avg_off, avg_mu)
         
         # Reset accumulators
         self.episode_probs_accum = []
         self.episode_off_probs_accum = []
+        self.episode_mu_accum = []
         self.episode_rewards = []
 
     def _on_training_end(self) -> None:
@@ -123,7 +136,7 @@ def train_gnn_policy():
     # Para usar datos sintéticos (comentar lo de arriba y descomentar esto si se desea)
     # x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(
     #      num_links=n_APs, num_features=1, b5g=False, building_id=990,
-    #      base_path='/home/bruno/Proyecto/NetROML/RUN/Bruno/preprod/data/'
+    #      base_path='/home/bruno/Proyecto/wireless-learning-main/graphs/2_4_990/'
     # )
     x_tensor, channel_matrix_tensor = graphs_to_tensor(
          num_links=n_APs, num_features=1, b5g=False, building_id=990,

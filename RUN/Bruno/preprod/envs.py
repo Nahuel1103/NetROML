@@ -118,7 +118,8 @@ class APNetworkEnv(gym.Env):
         # --- Estado interno ---
         # self.state = None
         self.H = None
-        self.mu_power = np.zeros(self.n_APs, dtype=np.float32)
+        #self.mu_power = np.zeros(self.n_APs, dtype=np.float32)
+        self.mu_power = torch.ones(self.n_APs, dtype=torch.float32)
         self.current_step = 0
         self.power_history = []   # Para guardar el histórico de potencias y calcular el promedio luego
         self.include_overlap = include_overlap
@@ -340,60 +341,139 @@ class APNetworkEnv(gym.Env):
     
 
 
-    def _get_rates(self, phi, sigma):
-        """
-        Calcula las tasas (rates) para el estado actual del entorno (sin batch).
+    # def _get_rates(self, phi, sigma):
+    #     """
+    #     Calcula las tasas (rates) para el estado actual del entorno (sin batch).
 
-        Parámetros
-        ----------
-        phi : torch.Tensor, shape (n_APs, num_channels)
-            Potencia transmitida por cada AP en cada canal.
-        sigma : float
-            Ruido térmico o ruido de fondo.
+    #     Parámetros
+    #     ----------
+    #     phi : torch.Tensor, shape (n_APs, num_channels)
+    #         Potencia transmitida por cada AP en cada canal.
+    #     sigma : float
+    #         Ruido térmico o ruido de fondo.
         
-        Returns
-        -------
-        rates : torch.Tensor, shape (n_APs,)
-            Tasa de transmisión por AP.
+    #     Returns
+    #     -------
+    #     rates : torch.Tensor, shape (n_APs,)
+    #         Tasa de transmisión por AP.
+    #     """
+    #     H = torch.tensor(self.H, dtype=torch.float32)          # [n_APs, n_APs]
+    #     sigma = torch.tensor(sigma, dtype=torch.float32)
+    #     P0 = self.P0
+    #     alpha = self.alpha
+
+    #     n_APs, num_channels = phi.shape
+
+    #     # Señal útil: potencia recibida de su propio canal
+    #     diagH = torch.diagonal(H, dim1=0, dim2=1)              # [n_APs]
+    #     signal = diagH.unsqueeze(-1) * phi                     # [n_APs, num_channels]
+
+    #     # Interferencia intra-canal (misma frecuencia)
+    # # interf_same = torch.matmul(H, phi) - signal            # [n_APs, num_channels]
+    #     interf_base = torch.matmul(H, phi) - signal            # [n_APs, num_channels]
+        
+    #     # Factor de contención (p_mc / p0)
+    #     coupling = phi / (P0 + 1e-12)
+
+    #     # Interferencia modulada
+    #     interf_same = interf_base * coupling
+        
+    #     interf_overlap=0
+
+    #     if self.include_overlap:
+    #         # Interferencia por canales solapados
+    #         interf_overlap = torch.zeros_like(interf_same)
+    #         for c in range(num_channels):
+    #             if c > 0:
+    #                 interf_overlap[:, c] += torch.matmul(H, phi[:, c-1])
+    #             if c < num_channels - 1:
+    #                 interf_overlap[:, c] += torch.matmul(H, phi[:, c+1])
+    #         interf_overlap *= alpha
+
+    #     # Denominador total
+    #     denom = sigma + interf_same + interf_overlap
+
+    #     # SINR
+    #     snr = signal / denom
+
+    #     # Tasa Shannon (log(1 + SINR))
+    #     #rates = torch.sum(torch.log1p(snr), dim=-1)            # [n_APs]
+    #     rates = torch.log1p(torch.sum(snr, dim=-1))
+    #     print("shape de rates es:", rates.shape)
+    #     return rates
+
+    def _get_rates(self, phi, sigma, eps=1e-12):
         """
-        H = torch.tensor(self.H, dtype=torch.float32)          # [n_APs, n_APs]
+        Versión adaptada al paper manteniendo:
+        - sin batch
+        - canales solapados
+        - suma de tasas por canal
+        """
+        H = torch.tensor(self.H, dtype=torch.float32)   # [n_APs, n_APs]
         sigma = torch.tensor(sigma, dtype=torch.float32)
-        P0 = self.P0
-        alpha = self.alpha
 
         n_APs, num_channels = phi.shape
 
-        # Señal útil: potencia recibida de su propio canal
-        diagH = torch.diagonal(H, dim1=0, dim2=1)              # [n_APs]
-        signal = diagH.unsqueeze(-1) * phi                     # [n_APs, num_channels]
+        # Señal útil
+        diagH = torch.diagonal(H)                       # [n_APs]
+        signal = diagH.unsqueeze(-1) * phi              # [n_APs, num_channels]
 
-        # Interferencia intra-canal (misma frecuencia)
-        interf_same = torch.matmul(H, phi) - signal            # [n_APs, num_channels]
-        
-        interf_overlap=0
+        # Interferencia intra-canal
+        interf_same = torch.matmul(H, phi) - signal     # [n_APs, num_channels]
 
+        # Interferencia por solapamiento
+        interf_overlap = torch.zeros_like(interf_same)
         if self.include_overlap:
-            # Interferencia por canales solapados
-            interf_overlap = torch.zeros_like(interf_same)
             for c in range(num_channels):
                 if c > 0:
                     interf_overlap[:, c] += torch.matmul(H, phi[:, c-1])
                 if c < num_channels - 1:
                     interf_overlap[:, c] += torch.matmul(H, phi[:, c+1])
-            interf_overlap *= alpha
+            interf_overlap *= self.alpha
 
-        # Denominador total
-        denom = sigma + interf_same + interf_overlap
+        # 🔹 NUEVO: coupling del paper
+        coupling = phi / (self.P0 + eps)
+
+        # 🔹 Interferencia modulada
+        interf_total = interf_same + interf_overlap
+        interf_mod = interf_total * coupling
 
         # SINR
-        snr = signal / denom
+        denom = sigma + interf_mod
+        snr = signal / (denom + eps)
 
-        # Tasa Shannon (log(1 + SINR))
-        rates = torch.sum(torch.log1p(snr), dim=-1)            # [n_APs]
-        print("shape de rates es:", rates.shape)
+        # Rate
+        rates = torch.sum(torch.log1p(snr), dim=-1)     # [n_APs]
+
         return rates
 
-    
+    def nuevo_get_rates(phi, H, sigma, eps=1e-12,p0=None):
+        """
+        TU VERSIÓN (del paper):
+        Interferencia modulada por p_mc/p0
+        
+        Interpretación: "Rate efectivo considerando contención"
+        """
+        batch_size, num_links, num_channels = phi.shape
+        
+        diagH = torch.diagonal(H, dim1=1, dim2=2)  # [batch, num_links]
+        signal = diagH.unsqueeze(-1) * phi  # [batch, num_links, num_channels]
+        
+        # Coupling factor: p_mc / p0
+        coupling_factor = phi / (p0 + eps)
+        
+        # Interferencia base
+        interference_base = torch.einsum('bij,bjc->bic', H.float(), phi.float())
+        interference_base = interference_base - signal
+        
+        # Modular por coupling
+        interference_modulated = interference_base * coupling_factor
+        
+        # SINR y rate
+        sinr = signal / (sigma + interference_modulated + eps)
+        rates = torch.log1p(torch.sum(sinr, dim=-1))
+        
+        return rates
 
 
     def render(self):
