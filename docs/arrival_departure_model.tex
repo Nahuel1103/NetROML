@@ -1,0 +1,368 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% Configuración de listings para Python
+\lstset{
+    language=Python,
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{orange},
+    showstringspaces=false,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    breaklines=true,
+    frame=single,
+    captionpos=b
+}
+
+\title{Modelo de Arribos y Partidas para Simulación de Clientes WiFi}
+\author{NetROML Project}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introducción}
+
+Este documento describe la implementación y fundamentación matemática del modelo de arribos y partidas utilizado para simular de forma estocástica la conexión y desconexión de clientes en una red WiFi. El modelo permite generar escenarios realistas de carga de red variable a lo largo del tiempo.
+
+\section{Fundamentos Teóricos}
+
+\subsection{Proceso de Poisson para Arribos}
+
+Un \textbf{proceso de Poisson} es un proceso estocástico que modela eventos que ocurren de manera independiente a una tasa promedio constante. En nuestro contexto, modelamos el número de clientes que se conectan a la red en cada timestep $t$.
+
+\subsubsection{Definición}
+
+Sea $N(t)$ el número de arribos (nuevas conexiones) en el timestep $t$. Entonces:
+
+\begin{equation}
+N(t) \sim \text{Poisson}(\lambda)
+\end{equation}
+
+donde $\lambda > 0$ es la \textbf{tasa de arribos}, que representa el número promedio de clientes que se conectan por timestep.
+
+\subsubsection{Función de Probabilidad}
+
+La probabilidad de observar exactamente $k$ arribos en un timestep está dada por:
+
+\begin{equation}
+P(N(t) = k) = \frac{\lambda^k e^{-\lambda}}{k!}, \quad k = 0, 1, 2, \ldots
+\end{equation}
+
+\subsubsection{Propiedades}
+
+\begin{itemize}
+    \item Valor esperado: $\mathbb{E}[N(t)] = \lambda$
+    \item Varianza: $\text{Var}[N(t)] = \lambda$
+    \item Los arribos en intervalos disjuntos son independientes
+\end{itemize}
+
+\subsection{Distribución Exponencial para Duración}
+
+La \textbf{distribución exponencial} modela el tiempo entre eventos independientes que ocurren a una tasa constante. En nuestro modelo, se usa para determinar cuánto tiempo permanece conectado cada cliente.
+
+\subsubsection{Definición}
+
+Sea $D$ la variable aleatoria que representa la duración de la conexión de un cliente (en timesteps). Entonces:
+
+\begin{equation}
+D \sim \text{Exp}(\mu)
+\end{equation}
+
+donde $\mu > 0$ es la \textbf{duración promedio} de conexión.
+
+\subsubsection{Función de Densidad}
+
+La función de densidad de probabilidad (PDF) es:
+
+\begin{equation}
+f_D(d) = \frac{1}{\mu} e^{-d/\mu}, \quad d \geq 0
+\end{equation}
+
+\subsubsection{Propiedades}
+
+\begin{itemize}
+    \item Valor esperado: $\mathbb{E}[D] = \mu$
+    \item Varianza: $\text{Var}[D] = \mu^2$
+    \item Propiedad sin memoria: $P(D > s+t \mid D > s) = P(D > t)$
+\end{itemize}
+
+\section{Modelo de Simulación}
+
+\subsection{Estructura del Evento}
+
+Cada cliente $i$ que arriba a la red genera un evento $E_i$ definido por la tupla:
+
+\begin{equation}
+E_i = (\text{id}_i, t_{\text{arribo}}^i, t_{\text{partida}}^i, d_i)
+\end{equation}
+
+donde:
+\begin{itemize}
+    \item $\text{id}_i$: Identificador único del cliente
+    \item $t_{\text{arribo}}^i$: Timestep de arribo
+    \item $t_{\text{partida}}^i$: Timestep de partida
+    \item $d_i$: Duración de la conexión en timesteps
+\end{itemize}
+
+\subsection{Relación entre Variables}
+
+La relación fundamental entre estas variables es:
+
+\begin{equation}
+t_{\text{partida}}^i = t_{\text{arribo}}^i + d_i
+\end{equation}
+
+donde $d_i$ es sorteado de una distribución exponencial.
+
+\subsection{Algoritmo de Simulación}
+
+El algoritmo completo para generar los eventos de todos los timesteps es:
+
+\begin{algorithm}
+\caption{Simulación de Arribos y Partidas}
+\begin{algorithmic}[1]
+\REQUIRE $T_{\text{max}}$: número total de timesteps
+\REQUIRE $\lambda$: tasa de arribos (Poisson)
+\REQUIRE $\mu$: duración promedio (Exponencial)
+\STATE Inicializar lista de eventos $\mathcal{E} = \emptyset$
+\STATE Inicializar contador de clientes $c = 0$
+\FOR{$t = 0$ \TO $T_{\text{max}} - 1$}
+    \STATE $n_t \sim \text{Poisson}(\lambda)$ \COMMENT{Número de arribos en timestep $t$}
+    \FOR{$j = 1$ \TO $n_t$}
+        \STATE $d \sim \text{Exponencial}(\mu)$ \COMMENT{Duración del cliente}
+        \STATE $d \gets \max(1, \lfloor d \rceil)$ \COMMENT{Redondear a entero, mínimo 1}
+        \STATE $t_{\text{partida}} \gets t + d$
+        \STATE Crear evento $E_c = (c, t, t_{\text{partida}}, d)$
+        \STATE $\mathcal{E} \gets \mathcal{E} \cup \{E_c\}$
+        \STATE $c \gets c + 1$
+    \ENDFOR
+\ENDFOR
+\RETURN $\mathcal{E}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Clientes Activos en un Timestep}
+
+Dado el conjunto de eventos $\mathcal{E}$, los clientes activos en un timestep $t$ son:
+
+\begin{equation}
+\mathcal{A}(t) = \{E_i \in \mathcal{E} \mid t_{\text{arribo}}^i \leq t < t_{\text{partida}}^i\}
+\end{equation}
+
+El número de clientes activos en el timestep $t$ es:
+
+\begin{equation}
+N_{\text{activos}}(t) = |\mathcal{A}(t)|
+\end{equation}
+
+\section{Estadísticas del Modelo}
+
+\subsection{Ocupación Esperada}
+
+Bajo los supuestos del modelo, la ocupación promedio esperada (número promedio de clientes activos) en régimen estacionario es:
+
+\begin{equation}
+\mathbb{E}[N_{\text{activos}}] = \lambda \cdot \mu
+\end{equation}
+
+Esta es una consecuencia de la \textbf{Ley de Little}:
+\begin{equation}
+L = \lambda W
+\end{equation}
+
+donde:
+\begin{itemize}
+    \item $L$: número promedio de clientes en el sistema
+    \item $\lambda$: tasa de arribos
+    \item $W$: tiempo promedio en el sistema
+\end{itemize}
+
+\subsection{Ejemplo Numérico}
+
+Con los parámetros:
+\begin{itemize}
+    \item $\lambda = 3.0$ clientes/timestep
+    \item $\mu = 15.0$ timesteps
+\end{itemize}
+
+La ocupación esperada es:
+\begin{equation}
+\mathbb{E}[N_{\text{activos}}] = 3.0 \times 15.0 = 45 \text{ clientes}
+\end{equation}
+
+\section{Implementación en Python}
+
+\subsection{Clase Principal}
+
+\begin{lstlisting}[caption=Clase ArrivalDepartureModel]
+class ArrivalDepartureModel:
+    def __init__(self, arrival_rate=2.0, mean_duration=10.0, 
+                 total_timesteps=100, random_seed=None):
+        self.arrival_rate = arrival_rate      # lambda
+        self.mean_duration = mean_duration    # mu
+        self.total_timesteps = total_timesteps
+        
+        if random_seed is not None:
+            np.random.seed(random_seed)
+        
+        self.events = []
+        self.client_counter = 0
+\end{lstlisting}
+
+\subsection{Generación de Arribos}
+
+\begin{lstlisting}[caption=Generación de arribos usando Poisson]
+def generate_arrivals(self, timestep):
+    """Genera numero de arribos usando Poisson"""
+    return np.random.poisson(self.arrival_rate)
+\end{lstlisting}
+
+\subsection{Generación de Duración}
+
+\begin{lstlisting}[caption=Generación de duración usando Exponencial]
+def generate_duration(self):
+    """Genera duracion usando Exponencial"""
+    duration = np.random.exponential(self.mean_duration)
+    return max(1, int(np.round(duration)))
+\end{lstlisting}
+
+\subsection{Simulación Completa}
+
+\begin{lstlisting}[caption=Simulación de todos los eventos]
+def simulate_all_events(self):
+    """Simula todos los arribos y partidas"""
+    self.events = []
+    self.client_counter = 0
+    
+    for t in range(self.total_timesteps):
+        num_arrivals = self.generate_arrivals(t)
+        
+        for _ in range(num_arrivals):
+            duration = self.generate_duration()
+            departure_time = t + duration
+            
+            event = ClientEvent(
+                client_id=f"client_{self.client_counter}",
+                arrival_time=t,
+                departure_time=departure_time,
+                duration=duration
+            )
+            
+            self.events.append(event)
+            self.client_counter += 1
+    
+    return self.events
+\end{lstlisting}
+
+\section{Integración con el Entorno de Simulación}
+
+\subsection{Arquitectura del Sistema}
+
+El modelo de arribos y partidas se integra con el entorno de simulación de red WiFi de la siguiente manera:
+
+\begin{enumerate}
+    \item \textbf{Pre-generación}: Al inicializar el entorno, se genera toda la secuencia de eventos
+    \item \textbf{Mapeo}: Cada cliente simulado se mapea a una dirección MAC real del dataset
+    \item \textbf{Actualización dinámica}: En cada timestep, se actualiza la lista de clientes activos
+    \item \textbf{Obtención de RSSI}: Los datos de RSSI se extraen del dataset solo para clientes activos
+\end{enumerate}
+
+\subsection{Ecuaciones del Entorno}
+
+Sea $\mathcal{C}(t)$ el conjunto de clientes activos en el timestep $t$. Para cada cliente $c \in \mathcal{C}(t)$ y AP $a$, el RSSI observado es:
+
+\begin{equation}
+\text{RSSI}_{c,a}(t) = \text{RSSI}_{\text{base}}(c, a) - (23 - P_a(t))
+\end{equation}
+
+donde:
+\begin{itemize}
+    \item $\text{RSSI}_{\text{base}}(c, a)$: RSSI base del dataset para el par cliente-AP
+    \item $P_a(t) \in \{10, 17, 23\}$ dBm: Potencia de transmisión del AP $a$ en timestep $t$
+\end{itemize}
+
+\subsection{Cálculo de SINR}
+
+Para un cliente $c$ conectado al AP $a$ en el timestep $t$:
+
+\begin{equation}
+\text{SINR}_{c,a}(t) = \frac{S_{c,a}(t)}{N + I_{c,a}(t)}
+\end{equation}
+
+donde:
+\begin{itemize}
+    \item $S_{c,a}(t) = 10^{\text{RSSI}_{c,a}(t)/10}$: Señal en mW
+    \item $N = 10^{-90/10}$: Ruido en mW
+    \item $I_{c,a}(t) = \sum_{a' \neq a, \text{ch}(a') = \text{ch}(a)} 10^{\text{RSSI}_{c,a'}(t)/10}$: Interferencia
+\end{itemize}
+
+\subsection{Capacidad del Cliente}
+
+La tasa de datos alcanzable para el cliente $c$ es:
+
+\begin{equation}
+R_c(t) = \frac{B}{n_a(t)} \log_2(1 + \text{SINR}_{c,a}(t))
+\end{equation}
+
+donde:
+\begin{itemize}
+    \item $B = 20$ MHz: Ancho de banda del canal
+    \item $n_a(t)$: Número de clientes asociados al AP $a$ en timestep $t$
+\end{itemize}
+
+\section{Resultados y Validación}
+
+\subsection{Ejemplo de Ejecución}
+
+Con parámetros $\lambda = 3.0$, $\mu = 15.0$, $T_{\text{max}} = 50$:
+
+\begin{itemize}
+    \item Clientes generados: 142
+    \item Duración promedio: 14.98 timesteps
+    \item Ocupación promedio: 29.08 clientes/timestep
+    \item Ocupación máxima: 49 clientes
+\end{itemize}
+
+\subsection{Validación Teórica}
+
+Comparando con la predicción teórica:
+\begin{equation}
+\mathbb{E}[N_{\text{activos}}] = 3.0 \times 15.0 = 45 \text{ clientes}
+\end{equation}
+
+La ocupación observada (29.08) es menor que la esperada debido al régimen transitorio inicial del sistema.
+
+\section{Conclusiones}
+
+El modelo de arribos y partidas basado en procesos de Poisson y distribuciones Exponenciales proporciona:
+
+\begin{enumerate}
+    \item \textbf{Realismo}: Simula patrones naturales de conexión/desconexión
+    \item \textbf{Flexibilidad}: Parámetros $\lambda$ y $\mu$ ajustables
+    \item \textbf{Eficiencia}: Pre-generación de eventos
+    \item \textbf{Reproducibilidad}: Uso de semillas aleatorias
+    \item \textbf{Integración}: Acoplamiento natural con entornos de simulación
+\end{enumerate}
+
+\section{Referencias}
+
+\begin{itemize}
+    \item Ross, S. M. (2014). \textit{Introduction to Probability Models}. Academic Press.
+    \item Kleinrock, L. (1975). \textit{Queueing Systems, Volume I: Theory}. Wiley-Interscience.
+    \item Sutton, R. S., \& Barto, A. G. (2018). \textit{Reinforcement Learning: An Introduction}. MIT Press.
+\end{itemize}
+
+\end{document}

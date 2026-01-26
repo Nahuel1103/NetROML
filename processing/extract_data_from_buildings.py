@@ -6,11 +6,11 @@ from collections import defaultdict
 import glob
 
 # Constants
-TARGET_BUILDINGS = {'990'}
+TARGET_BUILDINGS = {'814'}
 SCRIPT_DIR = os.path.dirname(os.path.abspath("NetROML"))
 DATA_DIR = os.path.join(SCRIPT_DIR, "Datos_WiFi_Ceibal")
 MAPPING_FILE = os.path.join(SCRIPT_DIR, "MAC_AP_building_id.csv")
-BUILDINGS_BASE_DIR = os.path.join(SCRIPT_DIR, "buildings_v2")
+BUILDINGS_BASE_DIR = os.path.join(SCRIPT_DIR, "buildings")
 
 def load_mapping():
     """Loads mac_ap -> building_id mapping for target buildings."""
@@ -102,7 +102,7 @@ def process_archives():
             continue
             
         month = match.group(1)
-        if month not in ['02', '03']:
+        if month not in ['02', '03', '04', '05', '06', '07', '08', '09', '10', '11']:
             continue
 
         time_str = match.group(2).replace('_', ':')

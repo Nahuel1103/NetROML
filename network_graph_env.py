@@ -6,91 +6,177 @@ import networkx as nx
 import torch
 from torch_geometric.data import Data
 from torch_geometric.utils import from_networkx
+from pathlib import Path
+
+from processing.load_dataset import load_dataset
+from processing.arrival_departure_model import ArrivalDepartureModel
 
 class NetworkGraphEnv(gym.Env):
     """
-    Custom Gym Environment for Network RSSI Simulation with Graph Observations.
-    Includes physics for:
-    - Sticky Clients (Re-association threshold)
-    - Channel Interference
-    - SINR & Rate Calculation
+    Entorno personalizado de Gym para simulación de RSSI en redes con observaciones de grafos.
+    Incluye física para:
+    - Clientes "pegajosos" (Sticky Clients): Umbral de re-asociación.
+    - Interferencia de canal.
+    - Cálculo de SINR y Tasa de bits.
     
-    Refactoring:
-    - Specific Node Features for APs and Clients.
+    Refactorización:
+    - Características de nodo específicas para APs y Clientes.
     """
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, data_file):
+    def __init__(self, 
+                data_root=Path("data"),
+                building_id=990,
+                max_timesteps=100,
+                arrival_rate=3.0,
+                mean_duration=15.0,
+                random_seed=None):
         super(NetworkGraphEnv, self).__init__()
         
-        self.df = pd.read_csv(data_file)
-        self.timeslots = sorted(self.df['timeslot'].unique())
-        self.current_step = 0
+        # Cargar datos reales RSSI (usados para obtener valores entre clientes y APs)
+        self.df = load_dataset(data_root, building_id)
         
-        # Identify Nodes
+        # Identificar todos los posibles APs y Clientes del dataset
         self.aps = sorted(self.df['mac_ap'].unique())
-        self.clients = sorted(self.df['mac_cliente'].unique())
+        all_clients = sorted(self.df['mac_cliente'].unique())
         
         self.ap_to_idx = {mac: i for i, mac in enumerate(self.aps)}
-        self.client_to_idx = {mac: i for i, mac in enumerate(self.clients)}
+        self.all_client_macs = all_clients  # Store all possible client MACs
         
         self.num_aps = len(self.aps)
-        self.num_clients = len(self.clients)
+        print(f"APs: {self.num_aps}")
+        print(f"Total possible clients in dataset: {len(all_clients)}")
         
-        # State Variables
+        # Calcular el índice máximo de bloque para cada cliente
+        client_block_counts = self.df.groupby('mac_cliente')['block_index'].max().to_dict()
+        
+        # Modelo de Arribo/Partida - simula qué clientes están activos
+        self.max_timesteps = max_timesteps
+        self.arrival_model = ArrivalDepartureModel(
+            arrival_rate=arrival_rate,
+            mean_duration=mean_duration,
+            total_timesteps=max_timesteps,
+            random_seed=random_seed,
+            client_block_counts=client_block_counts
+        )
+        
+        # Pre-generar todos los eventos de arribo/partida
+        print("Generando eventos de arribo/partida...")
+        self.arrival_model.simulate_all_events()
+        stats = self.arrival_model.get_statistics()
+        print(f"  Total simulated clients: {stats['total_clients']}")
+        print(f"  Mean occupancy: {stats['mean_occupancy']:.1f} clients/timestep")
+        print(f"  Max occupancy: {stats['max_occupancy']:.0f} clients")
+        
+        # Estado Dinámico - se actualizará en cada timestep
+        self.current_step = 0
+        self.active_clients = []  # Lista de eventos de clientes actualmente activos
+        self.client_to_idx = {}  # Se reconstruirá en cada timestep
+        self.num_clients = 0  # Se actualizará en cada timestep
+        
+        # Variables de estado de AP (tamaño fijo)
         self.ap_channels = np.zeros(self.num_aps, dtype=int)
-        self.ap_powers = np.ones(self.num_aps, dtype=int) * 2 # Default High
-        self.client_connections = np.full(self.num_clients, -1, dtype=int)
+        self.ap_powers = np.ones(self.num_aps, dtype=int) * 2  # Por defecto Alto
         
-        # Config options
+        # Conexiones de clientes (dinámico - redimensionado cada timestep)
+        self.client_connections = np.array([], dtype=int)
+        
+        # Opciones de Configuración
         self.available_channels = [1, 6, 11]
-        self.tx_powers_dbm = [10, 17, 23] # Low, Med, High
+        self.tx_powers_dbm = [10, 17, 23]  # Bajo, Medio, Alto
         
         self.action_space = spaces.MultiDiscrete([3, 3] * self.num_aps)
         
         self.observation_space = spaces.Dict({
-            "num_nodes": spaces.Discrete(self.num_aps + self.num_clients + 1),
+            "num_nodes": spaces.Discrete(self.num_aps + len(all_clients) + 1),
         })
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = 0
-        # Randomize initial AP config
+        
+        # Aleatorizar configuración inicial de APs
         self.ap_channels = np.random.randint(0, 3, size=self.num_aps)
         self.ap_powers = np.random.randint(0, 3, size=self.num_aps)
-        self.client_connections = np.full(self.num_clients, -1, dtype=int)
+        
+        # Obtener clientes activos del modelo de arribos en t=0
+        self._update_active_clients()
         
         return self._get_observation(), {}
+    
+    def _update_active_clients(self):
+        """Actualiza la lista de clientes activos basada en el modelo de arribos/partidas"""
+        # Obtener eventos activos directamente - ahora contienen la MAC real como client_id
+        self.active_clients = self.arrival_model.get_active_clients(self.current_step)
+        self.num_clients = len(self.active_clients)
+        
+        # Reconstruir mapeo de clientes usando IDs de sesión únicos
+        # Asignamos una ID sintética "session_i" al i-ésimo cliente activo para asegurar unicidad en el grafo
+        self.client_to_idx = {f"session_{i}": i for i in range(self.num_clients)}
+        
+        # Redimensionar/reinicializar conexiones de clientes
+        self.client_connections = np.full(self.num_clients, -1, dtype=int)
 
     def step(self, action):
-        # 1. Apply Actions
+        # 1. Aplicar Acciones
         action = action.reshape(self.num_aps, 2)
         self.ap_channels = action[:, 0]
         self.ap_powers = action[:, 1]
         
-        # 2. Get Snapshot
-        if self.current_step >= len(self.timeslots):
-             current_timeslot_data = pd.DataFrame(columns=self.df.columns)
-        else:
-            ts = self.timeslots[self.current_step]
-            current_timeslot_data = self.df[self.df['timeslot'] == ts]
-            
-        # 3. Physics & Helper Logic
+        # 2. Actualizar clientes activos según el modelo estocástico
+        self._update_active_clients()
+        
+        # 3. Obtener datos RSSI para los clientes activos actualmente
+        current_timeslot_data = self._get_current_snapshot()
+        
+        # 4. Física y Lógica Auxiliar
         self._update_client_connections(current_timeslot_data)
         total_rate, client_rates = self._calculate_network_rate(current_timeslot_data)
         
-        # 4. Next Step
+        # 5. Siguiente Paso
         self.current_step += 1
-        terminated = self.current_step >= len(self.timeslots)
+        terminated = self.current_step >= self.max_timesteps
         truncated = False
         
         observation = self._get_observation()
-        info = {"mean_rate": np.mean(client_rates) if len(client_rates)>0 else 0}
+        info = {
+            "mean_rate": np.mean(client_rates) if len(client_rates) > 0 else 0,
+            "num_active_clients": self.num_clients,
+            "num_arrivals": len(self.arrival_model.get_arrivals_at_timestep(self.current_step - 1)),
+            "num_departures": len(self.arrival_model.get_departures_at_timestep(self.current_step - 1))
+        }
         
         return observation, total_rate, terminated, truncated, info
+    
+    def _get_current_snapshot(self):
+        """Obtiene datos RSSI del dataset para los clientes activos usando sus bloques asignados"""
+        if self.num_clients == 0:
+            return pd.DataFrame(columns=self.df.columns)
+        
+        snapshots = []
+        for i, event in enumerate(self.active_clients):
+            # event.client_id es la dirección MAC real
+            mac = event.client_id
+            block = event.block_index
+            
+            # Filtrar para este cliente y bloque específico
+            client_data = self.df[
+                (self.df['mac_cliente'] == mac) & 
+                (self.df['block_index'] == block)
+            ].copy()
+            
+            # Asignar ID de sesión única para que la lógica del entorno lo trate correctamente
+            client_data['mac_cliente'] = f"session_{i}"
+            
+            snapshots.append(client_data)
+            
+        if not snapshots:
+             return pd.DataFrame(columns=self.df.columns)
+             
+        return pd.concat(snapshots, ignore_index=True)
 
     def _update_client_connections(self, df_snapshot):
-        # Sticky logic: same as before
+        # Lógica pegajosa (Sticky): igual que antes
         for client_mac, group in df_snapshot.groupby('mac_cliente'):
             if client_mac not in self.client_to_idx: continue
             c_idx = self.client_to_idx[client_mac]
@@ -131,7 +217,7 @@ class NetworkGraphEnv(gym.Env):
                          self.client_connections[c_idx] = best_ap_idx
 
     def _calculate_network_rate(self, df_snapshot):
-        # Rate calc logic: same as before
+        # Lógica de cálculo de tasa con interferencia intra-AP e inter-AP
         total_rate = 0.0
         client_rates = []
         noise_mu_w = 10**(-90/10)
@@ -165,6 +251,16 @@ class NetworkGraphEnv(gym.Env):
             
             my_channel = self.ap_channels[a_idx]
             interference_mw = 0.0
+            
+            # Interferencia Intra-AP: Otros clientes conectados al mismo AP
+            for other_c_idx in range(self.num_clients):
+                if other_c_idx == c_idx: continue
+                if self.client_connections[other_c_idx] == a_idx:  # Mismo AP
+                    if (other_c_idx, a_idx) in signal_map:
+                        i_dbm = signal_map[(other_c_idx, a_idx)]
+                        interference_mw += 10**(i_dbm/10)
+            
+            # Interferencia Inter-AP: Otros APs en el mismo canal
             for other_a_idx in range(self.num_aps):
                 if other_a_idx == a_idx: continue
                 if self.ap_channels[other_a_idx] != my_channel: continue
@@ -174,7 +270,9 @@ class NetworkGraphEnv(gym.Env):
             
             sinr = s_mw / (noise_mu_w + interference_mw)
             rate = 20e6 * np.log2(1 + sinr)
-            if clients_per_ap[a_idx] > 1: rate /= clients_per_ap[a_idx]
+            
+            # Ya no dividimos por clients_per_ap porque la interferencia intra-AP
+            # ya está modelada explícitamente en el cálculo de SINR
             rate_mbps = rate / 1e6
             total_rate += rate_mbps
             client_rates.append(rate_mbps)
@@ -183,21 +281,17 @@ class NetworkGraphEnv(gym.Env):
 
     def _get_observation(self):
         # ---------------------------------------------------------
-        # Refactored Feature Construction
+        # Construcción Refactorizada de Características
         # ---------------------------------------------------------
         
-        # 1. Edge List
-        if self.current_step >= len(self.timeslots):
-             current_timeslot_data = pd.DataFrame(columns=self.df.columns)
-        else:
-            ts = self.timeslots[self.current_step]
-            current_timeslot_data = self.df[self.df['timeslot'] == ts]
+        # 1. Obtener snapshot de datos actual para clientes activos
+        current_timeslot_data = self._get_current_snapshot()
 
         edge_index = []
         edge_attr = []
         
-        # Normalize RSSI for edge weights (using reference style normalization if possible, or just positive)
-        # Reference used transform_matrix/1e-3. Here we use RSSI+100.
+        # Normalizar RSSI para pesos de aristas (usando normalización estilo referencia si es posible, o solo positivo)
+        # Referencia usaba transform_matrix/1e-3. Aquí usamos RSSI+100.
         
         for _, row in current_timeslot_data.iterrows():
             if row['mac_ap'] not in self.ap_to_idx or row['mac_cliente'] not in self.client_to_idx: continue
@@ -213,21 +307,21 @@ class NetworkGraphEnv(gym.Env):
             edge_index.append([dst, src]) # Undirected/Bidirectional for propagation
             edge_attr.append([rssi])
 
-        # 2. Node Features
+        # 2. Características de Nodo
         # AP: [1.0, ID_Norm, Ch_Norm, Pwr_Norm]
-        # Client: [-1.0, ID_Norm, -1.0, -1.0]
+        # Cliente: [-1.0, ID_Norm, -1.0, -1.0]
         
         x = []
-        # AP Nodes
+        # Nodos AP
         for i in range(self.num_aps):
             id_norm = i / max(1, self.num_aps - 1)
             ch_norm = self.ap_channels[i] / 2.0
             p_norm = self.ap_powers[i] / 2.0
             x.append([1.0, id_norm, ch_norm, p_norm])
             
-        # Client Nodes
+        # Nodos Cliente
         for i in range(self.num_clients):
-            id_norm = i / max(1, self.num_clients - 1)
+            id_norm = i / max(1, self.num_clients - 1) if self.num_clients > 1 else 0.0
             x.append([-1.0, id_norm, -1.0, -1.0])
             
         x = torch.tensor(x, dtype=torch.float)

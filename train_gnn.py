@@ -5,6 +5,10 @@ import pandas as pd
 from network_graph_env import NetworkGraphEnv
 from gnn_model import GNN
 import os
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+DATA_ROOT = PROJECT_ROOT / "buildings"
 
 def mu_update(mu_k, power_constr, eps):
     mu_k = mu_k.detach()
@@ -17,7 +21,7 @@ def mu_update(mu_k, power_constr, eps):
 
 def train():
     # 1. Initialize API
-    env = NetworkGraphEnv('rssi_2018_08_processed.csv')
+    env = NetworkGraphEnv(data_root=DATA_ROOT, building_id=990)
     num_node_features = 4 
     hidden_channels = 32
     num_aps = env.num_aps
@@ -34,21 +38,23 @@ def train():
     model = GNN(num_node_features, hidden_channels, num_aps, K=2).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     
-    # ---------------------------------------------------------
     # Constrained Optimization Params (Lagrangian) - Per AP
     # ---------------------------------------------------------
-    # Limit: Each AP should not exceed 'Medium' power on average (Index 1.0)
-    P_LIMIT_PER_AP = 1.0 
+    # Limit: Each AP should not exceed this average power in dBm
+    P_LIMIT_PER_AP = 15.0  # dBm - between Low(10) and Medium(17)
     
     # Dual Variable mu_k: Vector of size [num_aps]
     mu_k = torch.zeros(num_aps, device=device) 
-    epsilon = 0.05 # Increased step size for stronger reaction
+    epsilon = 0.1 # Step size for dual variable update
+    
+    # Power levels for constraint calculation
+    tx_powers_dbm = torch.tensor([10.0, 17.0, 23.0], device=device)
     
     print(f"Starting REINFORCE with Per-AP Constraints on device: {device}")
-    print(f"Per-AP Power Limit Index: {P_LIMIT_PER_AP}")
+    print(f"Per-AP Power Limit: {P_LIMIT_PER_AP} dBm")
     
     metrics = []
-    num_episodes = 100 # Increased slightly for testing
+    num_episodes = 100
     
     for episode in range(num_episodes):
         obs, _ = env.reset()
@@ -79,31 +85,21 @@ def train():
             done = terminated or truncated
             
             # ---------------------------------------------------------
-            # Constraint Calculation (Per AP)
+            # Constraint Calculation (Per AP) - Using Physical Power
             # ---------------------------------------------------------
-            # pwr_actions is [Num_APs]
-            current_power_usage = pwr_actions.float()
+            # Convert action indices to actual power in dBm
+            current_power_dbm = tx_powers_dbm[pwr_actions]  # [Num_APs]
             
-            # Vector Constraint: usage[i] - P_LIMIT <= 0
-            # Ensure it has a batch dim for mu_update if needed, but here it's 1D [Num_APs] 
-            # and our mu_k is [Num_APs]. dim=0 in mu_update usually assumes batch. 
-            # Since we have no batch dim (it is just nodes), we interpret dim=0 as batch if input was [Batch, Nodes].
-            # Here input is [Nodes]. mean(dim=0) would collapse Nodes! 
-            # We want Element-wise update.
-            # Reference `mu_update` does `mean(dim=0)`.
-            # If we pass `constraint_val.unsqueeze(0)` (Shape [1, Num_APs]), 
-            # then `mean(dim=0)` returns [Num_APs], which is what we want (averaging over batch of 1).
+            # Vector Constraint: power_dbm[i] - P_LIMIT <= 0
+            constraint_val = current_power_dbm - P_LIMIT_PER_AP  # [Num_APs]
             
-            constraint_val = current_power_usage - P_LIMIT_PER_AP # [Num_APs]
-            
-            # Use separate function as requested
-            mu_k = mu_update(mu_k, constraint_val.unsqueeze(0), epsilon) # Input [1, Num_APs]
+            # Update dual variables (add batch dimension for mu_update function)
+            mu_k = mu_update(mu_k, constraint_val.unsqueeze(0), epsilon)
             
             # 4. Calculate Loss (Primal-Dual)
             scaled_reward = reward / 1000.0
             
             # Cost = -Reward + Sum(mu_k_i * constraint_val_i)
-            # Dot product or sum of element-wise product
             constraint_penalty = torch.sum(mu_k * constraint_val)
             cost = -scaled_reward + constraint_penalty
             
@@ -129,14 +125,15 @@ def train():
                 "learning_rate": current_lr,
                 "mean_mu_k": mu_k.mean().item(),
                 "max_mu_k": mu_k.max().item(),
-                "mean_power_usage": current_power_usage.mean().item(),
-                "max_power_usage": current_power_usage.max().item(),
+                "active_constraints": (mu_k > 0).sum().item(),
+                "mean_power_dbm": current_power_dbm.mean().item(),
+                "max_power_dbm": current_power_dbm.max().item(),
                 "action_pwr_0_count": (pwr_actions == 0).sum().item(),
                 "action_pwr_1_count": (pwr_actions == 1).sum().item(),
                 "action_pwr_2_count": (pwr_actions == 2).sum().item()
             })
             
-        print(f"Episode {episode+1}: Rate = {total_rate:.2f} Mbps | Mean mu_k = {mu_k.mean():.4f} | Max mu_k = {mu_k.max():.4f}")
+        print(f"Episode {episode+1}: Rate = {total_rate:.2f} Mbps | Mean mu_k = {mu_k.mean():.4f} | Max mu_k = {mu_k.max():.4f} | Active Constraints = {(mu_k > 0).sum().item()} | Mean Power = {mu_k.mean().item():.1f} dBm")
         
     df_metrics = pd.DataFrame(metrics)
     df_metrics.to_csv("training_metrics.csv", index=False)
