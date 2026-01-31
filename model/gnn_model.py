@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch_geometric.nn import HeteroConv, GATv2Conv, Linear
 
 class GNN(torch.nn.Module):
-    def __init__(self, hidden_channels, num_aps, out_channels_ch=3, out_channels_pwr=3):
+    def __init__(self, hidden_channels, num_aps, out_channels_ch=3, out_channels_pwr=8):
         super(GNN, self).__init__()
         self.num_aps = num_aps
         

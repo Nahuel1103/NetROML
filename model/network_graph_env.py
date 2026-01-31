@@ -40,13 +40,11 @@ class NetworkGraphEnv(gym.Env):
         self.clients = sorted(self.df['mac_cliente'].unique())
         
         self.ap_to_idx = {mac: i for i, mac in enumerate(self.aps)}
-
         self.num_aps = len(self.aps)
         self.total_clients = len(self.clients)
         
-        
         print(f"APs: {self.num_aps}")
-        print(f"Clientes: {self.total_clients}")
+        print(f"Total Clients: {self.total_clients}")
         
         # Máximo bloque disponible por cliente
         client_block_counts = build_client_block_counts(self.df)
@@ -71,26 +69,32 @@ class NetworkGraphEnv(gym.Env):
         self.active_client_map = {} # session_id -> index
         self.num_active_clients = 0
         
-        # Tensores de Estado AP
-        self.ap_channels = torch.zeros(self.num_aps, dtype=torch.long)
-        self.ap_powers_idx = torch.ones(self.num_aps, dtype=torch.long) * 2 
+        # Sticky Logic State
+        self.session_connection_map = {} # session_id -> ap_idx
+        
+        # Estado AP
+        self.ap_channels_idx = torch.zeros(self.num_aps, dtype=torch.long)
+        self.ap_powers_idx = torch.zeros(self.num_aps, dtype=torch.long)
         
         # Conexiones [Num_Active_Clients]
         self.client_connections = torch.full((0,), -1, dtype=torch.long)
         
         # Constantes Físicas
         self.available_channels = torch.tensor([1, 6, 11], dtype=torch.long)
-        self.tx_powers_dbm = torch.tensor([10.0, 17.0, 23.0], dtype=torch.float32)
+        self.tx_powers_dbm = torch.tensor([23.0, 11.5, 5.75, 2.875, 1.4375, 0.71875, 0.359375, 0.1796875], dtype=torch.float32)
+        
+        self.p_tx_data_dbm = 10.0
         self.noise_floor_dbm = -90.0
         self.noise_mw = 10**(self.noise_floor_dbm / 10.0)
         
-        # Matrices Pre-calculadas (se llenan en cada step)
-        # Path Loss Matrix: [Num_Active_Clients, Num_APs]
-        self.path_loss_matrix = None 
+        # Thresholds
+        self.threshold_lost_dbm = -90.0
+        self.delta_sticky_db = 15.0
+        
+        # Matrices Pre-calculadas
+        self.base_gain_matrix = None 
         
         # Espacio de acciones:
-        # Acción plana: [ch_0, pwr_0, ch_1, pwr_1, ..., ch_N, pwr_N]
-        # donde (ch_i, pwr_i) define la configuración del AP i
         self.action_space = spaces.MultiDiscrete(
             [len(self.available_channels), len(self.tx_powers_dbm)] * self.num_aps
         )        
@@ -109,11 +113,12 @@ class NetworkGraphEnv(gym.Env):
             np.random.seed(seed)
         
         # Configuración Inicial Aleatoria
-        self.ap_channels = torch.randint(0, len(self.available_channels), (self.num_aps,))
+        self.ap_channels_idx = torch.randint(0, len(self.available_channels), (self.num_aps,))
         self.ap_powers_idx = torch.randint(0, len(self.tx_powers_dbm), (self.num_aps,))
         
-        # Obtener clientes activos del modelo de arribos en t=0
+        self.session_connection_map = {}
         self._update_active_clients()
+        # self._perform_association_sticky() # Called in first step or manually if needed
         
         return self._get_observation(), {}
     
@@ -124,30 +129,23 @@ class NetworkGraphEnv(gym.Env):
         # Mapeo de clientes activos para gestión interna
         self.active_client_map = {f"session_{i}": i for i in range(self.num_active_clients)}
         
-        # Resetear conexiones (o mantener lógica sticky si se implementa persistencia completa)
-        # Aquí reseteamos y dejamos que _update_client_connections decida
+        # Cleanup disconnected sessions from map
+        active_session_ids = set(self.active_client_map.keys())
+        keys_to_remove = [k for k in self.session_connection_map if k not in active_session_ids]
+        for k in keys_to_remove:
+            del self.session_connection_map[k]
+        
+        # Reset connections (will be recalculated by association logic)
         self.client_connections = torch.full((self.num_active_clients,), -1, dtype=torch.long)
         
-        # Construir matriz de Path Loss para el snapshot actual
-        # Esto es lo más costoso, intentar hacerlo eficientemente
+        # Construir matriz de Ganancia (Gain)
         current_snapshot = self._get_current_snapshot_df()
         
-        # Matriz [Clients, APs] iniciada en muy bajo signal (alta pérdida)
-        # Usamos RSSI directo como proxy de -PathLoss + TxPower_Ref
-        # Asumimos que el RSSI en df es con TxPower ~23dBm (max) o similar.
-        # Simplificación: Usamos el RSSI del Dataset como "Received Power con Max Tx Power"
-        # Luego ajustamos por la diferencia de potencia real.
-        
-        self.base_rssi_matrix = torch.full((self.num_active_clients, self.num_aps), -120.0, dtype=torch.float32)
+        # Init with very low Gain
+        self.base_gain_matrix = torch.full((self.num_active_clients, self.num_aps), -200.0, dtype=torch.float32)
         
         if not current_snapshot.empty:
-            # Vectorizar llenado
-            # Necesitamos índices numéricos para APs y Clientes
-            # current_snapshot tiene 'mac_cliente' como 'session_i' y 'mac_ap' real
-            
-            # Mapear mac_ap a idx
             current_snapshot['ap_idx'] = current_snapshot['mac_ap'].map(self.ap_to_idx)
-            # Mapear session_id a idx
             current_snapshot['c_idx'] = current_snapshot['mac_cliente'].map(self.active_client_map)
             
             valid_rows = current_snapshot.dropna(subset=['ap_idx', 'c_idx'])
@@ -157,25 +155,28 @@ class NetworkGraphEnv(gym.Env):
                 a_indices = torch.tensor(valid_rows['ap_idx'].values, dtype=torch.long)
                 rssi_vals = torch.tensor(valid_rows['rssi'].values, dtype=torch.float32)
                 
-                self.base_rssi_matrix[c_indices, a_indices] = rssi_vals
+                # Gain = RSSI - P_tx_data
+                gain_vals = rssi_vals - self.p_tx_data_dbm
+                self.base_gain_matrix[c_indices, a_indices] = gain_vals
 
     def step(self, action):
         # 1. Aplicar Acción
         if isinstance(action, np.ndarray):
             action = torch.from_numpy(action)
             
-        # Desempaquetar acción plana [ch0, p0, ch1, p1, ...]
         action = action.view(self.num_aps, 2)
-        self.ap_channels = action[:, 0]
+        self.ap_channels_idx = action[:, 0]
         self.ap_powers_idx = action[:, 1]
         
         # 2. Actualizar Clientes y Estado Físico
         self._update_active_clients()
         
+        # 3. Asociación (Sticky) y Cálculo de Métricas
         if self.num_active_clients > 0:
-            # 3. Calcular Física Vectorizada
-            rates, total_rate, fairness = self._calculate_metrics_vectorized()
+            self._perform_association_sticky()
+            rates, total_rate, fairness = self._calculate_metrics()
         else:
+            self.client_connections = torch.tensor([], dtype=torch.long)
             rates = torch.tensor([])
             total_rate = 0.0
             fairness = 1.0
@@ -183,14 +184,17 @@ class NetworkGraphEnv(gym.Env):
         # 4. Observación
         obs = self._get_observation()
         
-        # 5. Reward: Proportional Fairness -> Sum(log(rate + epsilon))
-        # Rate en Mbps. epsilon para evitar log(0)
+        # 5. Reward
         epsilon_rate = 1e-6
-        # Si rates está vacío, reward = 0
+        alpha_throughput = 0.7
+        alpha_fairness = 0.3
+
         if len(rates) > 0:
-            reward = torch.sum(torch.log(rates + epsilon_rate)).item()
+            throughput_reward = torch.sum(torch.log(rates + epsilon_rate))
+            fairness_penalty = fairness  # ya está entre 0-1
+            reward = alpha_throughput * throughput_reward + alpha_fairness * fairness_penalty
         else:
-            reward = 0.0
+            reward = -10.0  # Penalización por no conectar a nadie
             
         # 6. Info y Terminación
         self.current_step += 1
@@ -206,93 +210,93 @@ class NetworkGraphEnv(gym.Env):
         
         return obs, reward, terminated, truncated, info
 
-    def _calculate_metrics_vectorized(self):
+    def _perform_association_sticky(self):
         """
-        Calcula SINR y Rates usando tensores.
-        Assumption: Downlink, Interfering APs only if they have active clients.
+        Determines client connection based on Sticky Logic.
         """
-        # 1. Ajustar RSSI basado en Potencia Actual
-        # Base RSSI asume Max Power (idx=2, 23dBm). Ajustamos delta.
-        # Tx Power actual
-        current_tx_powers = self.tx_powers_dbm[self.ap_powers_idx] # [Num_APs]
-        max_tx_power = self.tx_powers_dbm[-1] # 23.0
+        current_tx_powers = self.tx_powers_dbm[self.ap_powers_idx]
+        current_rx_matrix = self.base_gain_matrix + current_tx_powers.unsqueeze(0)
         
-        # Delta: P_actual - P_max (será <= 0)
-        power_delta = current_tx_powers - max_tx_power # [Num_APs]
+        new_client_connections = torch.full((self.num_active_clients,), -1, dtype=torch.long)
         
-        # Matriz de Potencia Recibida Actual [Clients, APs] (en dBm)
-        # Broadcasting: [C, A] + [A] -> [C, A]
-        current_rssi_matrix = self.base_rssi_matrix + power_delta.unsqueeze(0)
-        current_rx_mw = 10**(current_rssi_matrix / 10.0)
-        
-        # 2. Determinar asociación (Sticky Logic simplificada: Max RSSI > Thr)
-        # Ojo: La lógica sticky completa requiere estado previo. 
-        # Si update_active_clients resetea, aquí hacemos asociación "greedy" por step.
-        # Para consistencia con RL, greedy por step está bien por ahora.
-        
-        threshold_dbm = -80.0
-        best_rssi, best_ap_indices = torch.max(current_rssi_matrix, dim=1) # [C], [C]
-        
-        connected_mask = best_rssi > threshold_dbm # [C]
-        self.client_connections = torch.where(connected_mask, best_ap_indices, -1)
-        
-        # 3. Calcular Interferencia
-        # Máscara de Clientes Conectados
-        connected_clients_idx = torch.where(connected_mask)[0]
-        if len(connected_clients_idx) == 0:
-            return torch.tensor([]), 0.0, 0.0
+        for i in range(self.num_active_clients):
+            session_id = f"session_{i}"
             
-        # APs Activos (tienen al menos 1 cliente)
-        # active_aps_mask = torch.zeros(self.num_aps, dtype=torch.bool)
-        # active_aps_mask[self.client_connections[connected_mask]] = True
+            rx_powers = current_rx_matrix[i]
+            best_ap_idx = torch.argmax(rx_powers).item()
+            best_rx_val = rx_powers[best_ap_idx].item()
+            
+            prev_ap_idx = self.session_connection_map.get(session_id, -1)
+            conn_ap = -1
+            
+            if prev_ap_idx != -1:
+                # Check Sticky
+                current_link_rx = rx_powers[prev_ap_idx].item()
+                
+                # Lost?
+                if current_link_rx < self.threshold_lost_dbm:
+                    if best_rx_val > self.threshold_lost_dbm:
+                        conn_ap = best_ap_idx
+                else:
+                    # Better?
+                    if best_rx_val > current_link_rx + self.delta_sticky_db:
+                        conn_ap = best_ap_idx
+                    else:
+                        conn_ap = prev_ap_idx
+            else:
+                # New
+                if best_rx_val > self.threshold_lost_dbm:
+                    conn_ap = best_ap_idx
+            
+            if conn_ap != -1:
+                new_client_connections[i] = conn_ap
+                self.session_connection_map[session_id] = conn_ap
+            else:
+                if session_id in self.session_connection_map:
+                    del self.session_connection_map[session_id]
         
-        # Señal Útil por Cliente [C]
-        # Handle -1 indices safely: replace -1 with 0 temporarily, then mask properly
+        self.client_connections = new_client_connections
+
+    def _calculate_metrics(self):
+        current_tx_powers = self.tx_powers_dbm[self.ap_powers_idx]
+        current_rx_matrix = self.base_gain_matrix + current_tx_powers.unsqueeze(0)
+        current_rx_mw = 10**(current_rx_matrix / 10.0)
+        
+        connected_mask = (self.client_connections != -1)
+        if not connected_mask.any():
+            return torch.tensor([]), 0.0, 1.0
+            
+        # Signal
         safe_connections = self.client_connections.clone()
-        safe_connections[~connected_mask] = 0 # Dummy valid index
-        
-        signal_mw = torch.take_along_dim(current_rx_mw, safe_connections.unsqueeze(1), dim=1).squeeze() # [C]
-        # Poner 0 a desconectados
+        safe_connections[~connected_mask] = 0
+        signal_mw = torch.take_along_dim(current_rx_mw, safe_connections.unsqueeze(1), dim=1).squeeze()
         signal_mw[~connected_mask] = 0.0
         
-        # Interferencia: Suma de P_rx de otros APs en el mismo canal
-        # Expandir Canales AP [1, A] -> [C, A]
-        ap_channels_expanded = self.ap_channels.unsqueeze(0).expand(self.num_active_clients, -1)
+        # Interference Calculation
+        ap_channels = self.ap_channels_idx
+        ap_channels_exp = ap_channels.unsqueeze(0).expand(self.num_active_clients, -1)
         
-        # Canal del AP al que estoy conectado [C, 1]
-        my_ap_conn = self.client_connections.clone()
-        my_ap_conn[~connected_mask] = 0 # Dummy para evitar index error, luego enmascaramos
-        my_channel = self.ap_channels[my_ap_conn].unsqueeze(1) # [C, 1]
+        my_conn = self.client_connections.clone()
+        my_conn[~connected_mask] = 0
+        my_channels = ap_channels[my_conn].unsqueeze(1)
         
-        # Máscara Co-Canal: [C, A] (AP 'a' transmite en el mismo canal que mi AP)
-        co_channel_mask = (ap_channels_expanded == my_channel)
+        co_channel_mask = (ap_channels_exp == my_channels)
         
-        # Excluir mi propio AP de la interferencia
-        # Crear indice de APs [1, A]
         ap_indices = torch.arange(self.num_aps).unsqueeze(0).expand(self.num_active_clients, -1)
         not_my_ap_mask = (ap_indices != self.client_connections.unsqueeze(1))
         
-        # Máscara de APs Activos (Globalmente)
-        # Solo APs que sirven a alguien contribuyen a interferencia
-        aps_serving_users = torch.unique(self.client_connections[connected_mask])
-        active_aps_mask_b = torch.zeros(self.num_aps, dtype=torch.bool)
-        active_aps_mask_b[aps_serving_users] = True
+        active_aps = torch.unique(self.client_connections[connected_mask])
+        active_aps_mask = torch.zeros(self.num_aps, dtype=torch.bool)
+        active_aps_mask[active_aps] = True
+        active_aps_exp = active_aps_mask.unsqueeze(0).expand(self.num_active_clients, -1)
         
-        # Expandir Active APs [1, A]
-        active_aps_expanded = active_aps_mask_b.unsqueeze(0).expand(self.num_active_clients, -1)
+        interference_mask = co_channel_mask & not_my_ap_mask & active_aps_exp
         
-        # Máscara Final de Interferencia [C, A]
-        # (Co-Canal) AND (No es mi AP) AND (AP está Activo)
-        interference_mask = co_channel_mask & not_my_ap_mask & active_aps_expanded
+        interference_mw_cont = current_rx_mw * interference_mask.float()
+        total_interference_mw = interference_mw_cont.sum(dim=1)
         
-        # Sumar Potencia de APs interferentes
-        interference_mw_matrix = current_rx_mw * interference_mask.float()
-        total_interference_mw = interference_mw_matrix.sum(dim=1) # [C]
-        
-        # SINR
         sinr = signal_mw / (self.noise_mw + total_interference_mw + 1e-12)
         
-        # Shannon Capacity (Approx)
         bw_hz = 20e6
         rates = bw_hz * torch.log2(1 + sinr)
         rates_mbps = rates / 1e6
@@ -300,91 +304,142 @@ class NetworkGraphEnv(gym.Env):
         
         total_rate = rates_mbps.sum().item()
         
-        # Jain's Fairness Index
-        # (Sum x)^2 / (N * Sum x^2)
-        # Solo sobre clientes activos totales intentando conectarse? O solo conectados?
-        # Normalmente sobre todos los activos (para penalizar desconexiones)
         n = self.num_active_clients
         sum_r = rates_mbps.sum()
         sum_sq_r = (rates_mbps ** 2).sum()
-        fairness = (sum_r ** 2) / (n * sum_sq_r + 1e-9)
+        fairness = (sum_r ** 2) / (n * sum_sq_r + 1e-12)
         
         return rates_mbps, total_rate, fairness.item()
 
     def _get_observation(self):
-        """
-        Genera un objeto HeteroData.
-        """
         data = HeteroData()
         
         # -------------------
         # NODES
         # -------------------
-        # AP Features: [ID_Norm, Ch_Norm, Pwr_Norm, Active_Flag]
-        # Active_Flag: Indica si el AP tiene usuarios conectados
         is_active = torch.zeros(self.num_aps, dtype=torch.float)
         if hasattr(self, 'client_connections'):
-             # Marcar activos
              active_indices = torch.unique(self.client_connections[self.client_connections != -1])
              is_active[active_indices] = 1.0
              
         ap_feats = torch.stack([
             torch.linspace(0, 1, self.num_aps),
-            self.ap_channels.float() / 11.0, # Normalizar canal aprox
+            self.ap_channels_idx.float() / 11.0, 
             self.ap_powers_idx.float() / 2.0,
             is_active
         ], dim=1)
         
         data['ap'].x = ap_feats
         
-        # Client Features: [ID_Norm (dummy), 0, 0, 0] (Placeholder simple)
-        # Podríamos poner QoS required si tuviéramos
+        # Client Features: [Connected_RSSI_Norm, Session_Duration_Norm, Connected_Flag, 0]
         if self.num_active_clients > 0:
-            c_feats = torch.zeros((self.num_active_clients, 4), dtype=torch.float)
-            data['client'].x = c_feats # Features minimalistas
+            # 1. Connected RSSI
+            # RSSI = Gain + Tx Power
+            # Si no conectado, usar valor muy bajo (e.g. -120 dBm)
+            
+            # Tx Powers actuales
+            current_tx_powers = self.tx_powers_dbm[self.ap_powers_idx]
+            
+            # Gain actual [C, A]
+            current_gain_matrix = self.base_gain_matrix
+            
+            # Select Gain of connected AP
+            connected_indices = self.client_connections.clone()
+            mask_connected = (connected_indices != -1)
+            
+            # Placeholder for RSSI
+            client_rssi = torch.full((self.num_active_clients,), -120.0, dtype=torch.float32)
+            
+            if mask_connected.any():
+                # Indices validos
+                valid_conn_aps = connected_indices[mask_connected]
+                valid_clients_idx = torch.where(mask_connected)[0]
+                
+                # Gains para conexiones activas
+                gains = current_gain_matrix[valid_clients_idx, valid_conn_aps]
+                
+                # Tx Power de esos APs
+                tx_pwrs = current_tx_powers[valid_conn_aps]
+                
+                client_rssi[mask_connected] = gains + tx_pwrs
+            
+            # Normalize RSSI: map approx [-100, -30] to [0, 1]
+            # (RSSI + 100) / 70
+            client_rssi_norm = (client_rssi + 100.0) / 70.0
+            
+            # 2. Session Duration
+            durations = torch.zeros(self.num_active_clients, dtype=torch.float32)
+            for i, event in enumerate(self.active_clients):
+                # event.arrival_time es absoluto? Checks ArrivalDepartureModel
+                # Asumimos event.arrival_time es el step de inicio
+                d = self.current_step - event.arrival_time
+                durations[i] = d
+            
+            # Normalize Duration: / max_timesteps (approx)
+            duration_norm = durations / self.max_timesteps
+            
+            # 3. Connected Flag
+            connected_flag = mask_connected.float()
+            
+            # Stack features
+            # [RSSI, Duration, Connected, 0]
+            c_feats = torch.stack([
+                client_rssi_norm,
+                duration_norm,
+                connected_flag,
+                torch.zeros(self.num_active_clients)
+            ], dim=1)
+            
+            data['client'].x = c_feats
         else:
             data['client'].x = torch.empty((0, 4), dtype=torch.float)
 
         # -------------------
         # EDGES
         # -------------------
-        # 'ap' -> 'connects' -> 'client' (Potencial Conexión / RSSI real)
-        # Usamos base_rssi_matrix > Threshold mínimo de visibilidad (-100 dBm)
         if self.num_active_clients > 0:
-            visibility_mask = self.base_rssi_matrix > -100.0
-            src_c, dst_a = torch.where(visibility_mask) # Ojo: matrix es [C, A]
+            # =====================================================
+            # 1. ARISTAS DOWNLINK: AP → Cliente
+            # Representa: Visibilidad RF (qué APs puede ver cada cliente)
+            # =====================================================
+
+            # Use Base Gain > -100 threshold for graph edges
+            # Gain values typically -50 to -90. -100 as cutoff.
+            visibility_mask = self.base_gain_matrix > -100.0
+            client_idx, ap_idx = torch.where(visibility_mask)
             
-            # HeteroData edge direction: AP -> Client (Downlink)
-            edge_index_ap_client = torch.stack([dst_a, src_c], dim=0)
+            # edge_index = [source_nodes, target_nodes]
+            # Para AP → Cliente: source=AP, target=Cliente
+            edge_index_downlink = torch.stack([ap_idx, client_idx], dim=0)
             
-            # Edge Attr: [RSSI_Norm]
-            rssi_vals = self.base_rssi_matrix[src_c, dst_a]
-            edge_attr = (rssi_vals + 100.0) / 50.0 # Norm approx [0, 1]
+            # Edge Attr: [Gain_Norm]
+            # Normalization: Gain usually [-100, -30]. +100 / 70 => [0, 1] approx
+            gain_vals = self.base_gain_matrix[client_idx, ap_idx]
+            edge_attr = (gain_vals + 100.0) / 70.0 
             
-            data['ap', 'connects', 'client'].edge_index = edge_index_ap_client
+            data['ap', 'connects', 'client'].edge_index = edge_index_downlink
             data['ap', 'connects', 'client'].edge_attr = edge_attr.unsqueeze(1)
             
-            # 'client' -> 'connected_to' -> 'ap' (Estado actual de conexión)
-            # Para que el GNN sepa quién está conectado a quién
-            connected_indices = torch.where(self.client_connections != -1)[0]
-            if len(connected_indices) > 0:
-                  src_c_conn = connected_indices
-                  dst_a_conn = self.client_connections[connected_indices]
-                  data['client', 'connected_to', 'ap'].edge_index = torch.stack([src_c_conn, dst_a_conn], dim=0)
+            # =====================================================
+            # 2. ARISTAS UPLINK: Cliente → AP
+            # Representa: Conexión activa (carga en el AP)
+            # =====================================================
+            connected_client_indices = torch.where(self.client_connections != -1)[0]
+            if len(connected_client_indices) > 0:
+                connected_ap_indices = self.client_connections[connected_client_indices]
+                
+                # Para Cliente → AP: source=Cliente, target=AP
+                edge_index_uplink = torch.stack([connected_client_indices, connected_ap_indices], dim=0)
+                
+                data['client', 'connected_to', 'ap'].edge_index = edge_index_uplink
             else:
-                  data['client', 'connected_to', 'ap'].edge_index = torch.empty((2, 0), dtype=torch.long)
+                data['client', 'connected_to', 'ap'].edge_index = torch.empty((2, 0), dtype=torch.long)
                   
         else:
-             data['ap', 'connects', 'client'].edge_index = torch.empty((2, 0), dtype=torch.long)
-             data['ap', 'connects', 'client'].edge_attr = torch.empty((0, 1), dtype=torch.float)
-             data['client', 'connected_to', 'ap'].edge_index = torch.empty((2, 0), dtype=torch.long)
-
-        # 'ap' -> 'interferes' -> 'client'
-        # Podríamos añadir esto explícitamente, o dejar que el GNN lo infiera via AP->Client edges + AP Features (Channel)
-        # Por eficiencia, dejamos que el GNN use 'connects' y filtremos por atención si es necesario.
-        # Pero mi plan decía explícitamente Interference edges.
-        # Vamos a reutilizar 'connects' como 'signal path' que transporta tanto señal útil como interferencia.
-        # GATv2 en el edge AP->Client sabrá si es útil o interferencia mirando los canales de los nodos AP.
+            # Sin clientes activos: grafos vacíos
+            data['ap', 'connects', 'client'].edge_index = torch.empty((2, 0), dtype=torch.long)
+            data['ap', 'connects', 'client'].edge_attr = torch.empty((0, 1), dtype=torch.float)
+            data['client', 'connected_to', 'ap'].edge_index = torch.empty((2, 0), dtype=torch.long)
         
         return data
 
@@ -409,10 +464,8 @@ class NetworkGraphEnv(gym.Env):
             # Obtener bloque
             block = self.arrival_departure_model.get_block_index_at_timestep(event, self.current_step)
             
-            # Filtrar (pandas optimizado)
-            # Asumimos que self.df tiene índice o es rápido.
-            # Podemos optimizar haciendo un multi-query o mask grande.
-            
+            # Filtrar 
+        
             client_data = self.df[
                 (self.df['mac_cliente'] == mac_real) &
                 (self.df['block_index'] == block)

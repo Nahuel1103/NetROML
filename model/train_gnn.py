@@ -10,6 +10,15 @@ import torch.optim as optim
 from gnn_model import GNN
 from network_graph_env import NetworkGraphEnv
 
+def compute_returns(rewards, gamma=0.99):
+    """Calcula retornos descontados."""
+    returns = []
+    G = 0
+    for r in reversed(rewards):
+        G = r + gamma * G
+        returns.insert(0, G)
+    return torch.tensor(returns, dtype=torch.float32)
+
 def train():
     # 0. Path Setup
     current_dir = Path(__file__).resolve().parent
@@ -24,7 +33,8 @@ def train():
         data_root = project_root
 
     print(f"Loading environment with data root: {data_root}")
-    env = NetworkGraphEnv(data_root=data_root, building_id=990)
+    seed = 42
+    env = NetworkGraphEnv(data_root=data_root, building_id=990, random_seed=seed)
     
     hidden_channels = 64 # Increased for Transformer/GAT
     num_aps = env.num_aps
@@ -34,17 +44,19 @@ def train():
         device = torch.device('mps')
     
     print(f"Training on device: {device}")
+
+    num_episodes = 200
     
     model = GNN(hidden_channels, num_aps).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_episodes)
     
     # Baseline for REINFORCE
     running_reward_mean = 0.0
     alpha = 0.1
     
     metrics = []
-    num_episodes = 200
+    
     
     start_time_total = time.time()
     
@@ -80,10 +92,10 @@ def train():
             
             # Form action
             action_tensor = torch.stack((ch_actions, pwr_actions), dim=1).flatten()
-            action_np = action_tensor.cpu().numpy()
+            action = action_tensor.cpu().numpy()
             
             # 3. Step
-            next_obs, reward, terminated, truncated, info = env.step(action_np)
+            next_obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
             
             rewards.append(reward)
@@ -94,24 +106,38 @@ def train():
             obs = next_obs
         
         # --- Update ---
-        G = sum(rewards)
-        
+
+        # 1. Compute returns
+        returns = compute_returns(rewards, gamma=0.99)
+        G = returns[0].item()
+
+        # 2. Update baseline
         if episode == 0:
             running_reward_mean = G
         else:
             running_reward_mean = (1 - alpha) * running_reward_mean + alpha * G
-            
-        advantage = G - running_reward_mean
-        
+
+        # 3. Compute advantages (normalized)
+        advantages = returns - running_reward_mean
+        if len(advantages) > 1:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+        # 4. Policy loss por step (OPCIÓN A)
+        policy_losses = []
+        for t in range(len(rewards)):
+            lp_ch = log_probs_ch[t].sum()
+            lp_pwr = log_probs_pwr[t].sum()
+            policy_losses.append(-advantages[t] * (lp_ch + lp_pwr))
+
+        policy_loss = torch.stack(policy_losses).mean()
+
+        # 5. Backpropagation
         optimizer.zero_grad()
-        
-        # Sum log probs
-        sum_log_probs = torch.cat(log_probs_ch).sum() + torch.cat(log_probs_pwr).sum()
-        
-        # Loss = - Advantage * SumLogProbs
-        loss = -advantage * sum_log_probs
-        
-        loss.backward()
+        policy_loss.backward()
+
+        # 6. Gradient clipping (OPCIÓN B)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
         optimizer.step()
         scheduler.step()
         
@@ -121,13 +147,15 @@ def train():
             "episode": episode + 1,
             "total_rate_mbps": total_rate,
             "mean_fairness": np.mean(fairness_scores),
-            "loss": loss.item(),
+            "loss": policy_loss.item(),  # ← Cambio de nombre
             "reward_sum": G,
+            "grad_norm": grad_norm.item(),  # ← Nuevo
             "duration_sec": ep_duration
         })
         
         if (episode+1) % 10 == 0:
-            print(f"Ep {episode+1}: Rew={G:.1f} | Rate={total_rate:.1f} | Fair={np.mean(fairness_scores):.2f} | Time={ep_duration:.2f}s")
+            print(f"Ep {episode+1}: Rew={G:.1f} | Rate={total_rate:.1f} | Fair={np.mean(fairness_scores):.2f} | "
+                  f"Loss={policy_loss.item():.2f} | Grad={grad_norm:.2f} | Time={ep_duration:.2f}s")
 
     print(f"Training finished in {time.time() - start_time_total:.1f}s")
     df_metrics = pd.DataFrame(metrics)
