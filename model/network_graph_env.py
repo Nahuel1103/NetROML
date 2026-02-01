@@ -29,8 +29,12 @@ class NetworkGraphEnv(gym.Env):
                 max_timesteps=100,
                 arrival_rate=3.0,
                 mean_duration=15.0,
-                random_seed=None):
+                random_seed=None,
+                debug=False):
         super(NetworkGraphEnv, self).__init__()
+
+        # Debug flag
+        self.debug = debug
         
         # Cargar Dataset
         self.df = load_dataset(data_root, building_id)
@@ -190,7 +194,7 @@ class NetworkGraphEnv(gym.Env):
         alpha_fairness = 0.3
 
         if len(rates) > 0:
-            throughput_reward = torch.sum(torch.log(rates + epsilon_rate))
+            throughput_reward = torch.sum(torch.log(rates.mean() + epsilon_rate))
             fairness_penalty = fairness  # ya está entre 0-1
             reward = alpha_throughput * throughput_reward + alpha_fairness * fairness_penalty
         else:
@@ -441,7 +445,28 @@ class NetworkGraphEnv(gym.Env):
             data['ap', 'connects', 'client'].edge_attr = torch.empty((0, 1), dtype=torch.float)
             data['client', 'connected_to', 'ap'].edge_index = torch.empty((2, 0), dtype=torch.long)
         
+        # Solo validar si está en modo debug
+        if self.debug:
+            self._validate_graph(data)
+        
         return data
+
+
+    def _validate_graph(self, data):
+        """Validaciones de integridad del grafo."""
+        # Validar estructura
+        assert data['ap', 'connects', 'client'].edge_index.shape[0] == 2
+        
+        # Validar rangos
+        if data['ap', 'connects', 'client'].edge_index.shape[1] > 0:
+            max_ap_idx = data['ap', 'connects', 'client'].edge_index[0].max().item()
+            max_client_idx = data['ap', 'connects', 'client'].edge_index[1].max().item()
+            
+            assert max_ap_idx < self.num_aps, \
+                f"AP index {max_ap_idx} >= num_aps {self.num_aps}"
+            assert max_client_idx < self.num_active_clients, \
+                f"Client index {max_client_idx} >= num_active_clients {self.num_active_clients}"
+
 
     def _get_current_snapshot_df(self):
         """

@@ -33,7 +33,7 @@ def train():
         data_root = project_root
 
     print(f"Loading environment with data root: {data_root}")
-    seed = 42
+    seed = 314
     env = NetworkGraphEnv(data_root=data_root, building_id=990, random_seed=seed)
     
     hidden_channels = 64 # Increased for Transformer/GAT
@@ -55,6 +55,10 @@ def train():
     running_reward_mean = 0.0
     alpha = 0.1
     
+    best_reward = -float('inf')
+    save_dir = Path("saved_models")
+    save_dir.mkdir(exist_ok=True)
+    
     metrics = []
     
     
@@ -68,6 +72,8 @@ def train():
         
         log_probs_ch = []
         log_probs_pwr = []
+        all_ch_actions = []
+        all_pwr_actions = []
         rewards = []
         fairness_scores = []
         
@@ -89,6 +95,9 @@ def train():
             
             log_probs_ch.append(ch_dist.log_prob(ch_actions))
             log_probs_pwr.append(pwr_dist.log_prob(pwr_actions))
+            
+            all_ch_actions.append(ch_actions)
+            all_pwr_actions.append(pwr_actions)
             
             # Form action
             action_tensor = torch.stack((ch_actions, pwr_actions), dim=1).flatten()
@@ -122,7 +131,7 @@ def train():
         if len(advantages) > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # 4. Policy loss por step (OPCIÓN A)
+        # 4. Policy loss por step
         policy_losses = []
         for t in range(len(rewards)):
             lp_ch = log_probs_ch[t].sum()
@@ -141,23 +150,52 @@ def train():
         optimizer.step()
         scheduler.step()
         
-        # Logging
+        # --- Model Saving ---
+        if G > best_reward:
+            best_reward = G
+            torch.save(model.state_dict(), save_dir / "best_model.pt")
+            
+        if (episode + 1) % 50 == 0:
+             torch.save(model.state_dict(), save_dir / f"model_ep_{episode+1}.pt")
+        
+        # --- Action Analysis ---
+        ep_ch_actions = torch.cat(all_ch_actions).cpu().numpy()
+        ep_pwr_actions = torch.cat(all_pwr_actions).cpu().numpy()
+        
+        # --- Logging ---
         ep_duration = time.time() - ep_start_time
         metrics.append({
             "episode": episode + 1,
             "total_rate_mbps": total_rate,
             "mean_fairness": np.mean(fairness_scores),
-            "loss": policy_loss.item(),  # ← Cambio de nombre
+            "loss": policy_loss.item(),
             "reward_sum": G,
-            "grad_norm": grad_norm.item(),  # ← Nuevo
-            "duration_sec": ep_duration
+            "grad_norm": grad_norm.item(),
+            "lr": optimizer.param_groups[0]['lr'],
+            "duration_sec": ep_duration,
+            "mean_pwr_idx": ep_pwr_actions.mean(),
         })
         
         if (episode+1) % 10 == 0:
             print(f"Ep {episode+1}: Rew={G:.1f} | Rate={total_rate:.1f} | Fair={np.mean(fairness_scores):.2f} | "
                   f"Loss={policy_loss.item():.2f} | Grad={grad_norm:.2f} | Time={ep_duration:.2f}s")
 
+        # --- Snapshot Saving ---
+        if (episode + 1) % 20 == 0:
+            snapshot = {
+                "episode": episode + 1,
+                "obs": obs, 
+                "info": info,
+                "all_ch_actions": ep_ch_actions,
+                "all_pwr_actions": ep_pwr_actions
+            }
+            torch.save(snapshot, save_dir / f"snapshot_ep_{episode+1}.pt")
+
     print(f"Training finished in {time.time() - start_time_total:.1f}s")
+    
+    # Save Final
+    torch.save(model.state_dict(), save_dir / "final_model.pt")
+    
     df_metrics = pd.DataFrame(metrics)
     output_path = "training_metrics.csv"
     df_metrics.to_csv(output_path, index=False)
