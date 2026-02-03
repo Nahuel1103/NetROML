@@ -60,7 +60,7 @@ def train():
     save_dir.mkdir(exist_ok=True)
     
     metrics = []
-    
+    decision_logs = []
     
     start_time_total = time.time()
     
@@ -106,6 +106,22 @@ def train():
             # 3. Step
             next_obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
+
+            # --- Decision Logging (PER STEP, PER AP) ---
+            for ap_id in range(env.num_aps):
+                decision_logs.append({
+                    "episode": episode + 1,
+                    "step": step_count,
+                    "ap_id": ap_id,
+                    "channel": int(ch_actions[ap_id].item()),
+                    "power_idx": int(pwr_actions[ap_id].item()),
+                    "reward": reward,
+                    "total_rate": info.get("total_rate", 0),
+                    "fairness": info.get("fairness_index", 0)
+                })
+            
+            # if episode % 20 == 0 and step_count == 0:
+            #     env._log_network_state(episode, step_count)
             
             rewards.append(reward)
             fairness_scores.append(info.get('fairness_index', 0))
@@ -113,6 +129,7 @@ def train():
             total_rate += info.get('total_rate', 0) # Track real throughput, not log reward
             step_count += 1
             obs = next_obs
+
         
         # --- Update ---
 
@@ -180,16 +197,18 @@ def train():
             print(f"Ep {episode+1}: Rew={G:.1f} | Rate={total_rate:.1f} | Fair={np.mean(fairness_scores):.2f} | "
                   f"Loss={policy_loss.item():.2f} | Grad={grad_norm:.2f} | Time={ep_duration:.2f}s")
 
+
         # --- Snapshot Saving ---
-        if (episode + 1) % 20 == 0:
+        if (episode + 1) % 50 == 0 and step_count == 0:
             snapshot = {
                 "episode": episode + 1,
-                "obs": obs, 
-                "info": info,
-                "all_ch_actions": ep_ch_actions,
-                "all_pwr_actions": ep_pwr_actions
+                "graph": obs.cpu(),  # HeteroData
+                "ap_channels": env.ap_channels.copy(),
+                "ap_powers": env.ap_powers.copy(),
+                "client_connections": dict(env.client_connections)
             }
-            torch.save(snapshot, save_dir / f"snapshot_ep_{episode+1}.pt")
+            torch.save(snapshot, save_dir / f"graph_ep_{episode+1}.pt")
+
 
     print(f"Training finished in {time.time() - start_time_total:.1f}s")
     
@@ -200,6 +219,10 @@ def train():
     output_path = "training_metrics.csv"
     df_metrics.to_csv(output_path, index=False)
     print(f"Metrics saved to {output_path}")
+
+    pd.DataFrame(decision_logs).to_csv("decision_log.csv", index=False)
+
+
 
 if __name__ == "__main__":
     train()

@@ -85,7 +85,7 @@ class NetworkGraphEnv(gym.Env):
         
         # Constantes Físicas
         self.available_channels = torch.tensor([1, 6, 11], dtype=torch.long)
-        self.tx_powers_dbm = torch.tensor([23.0, 11.5, 5.75, 2.875, 1.4375, 0.71875, 0.359375, 0.1796875], dtype=torch.float32)
+        self.tx_powers_dbm = torch.tensor([23.0, 11.5, 5.75, 2.875], dtype=torch.float32)
         
         self.p_tx_data_dbm = 10.0
         self.noise_floor_dbm = -90.0
@@ -504,4 +504,35 @@ class NetworkGraphEnv(gym.Env):
             return pd.DataFrame()
 
         return pd.concat(snapshots, ignore_index=True)
+
+    # def _log_network_state(self, episode, step):
+
+    #     print(f"\n--- Episode {episode} | Step {step} ---")
+
+    #     for ap in range(self.num_aps):
+    #         print(
+    #             f"AP {ap}: "
+    #             f"channel={self.ap_channels_idx[ap]}, "
+    #             f"power_idx={self.ap_powers_idx[ap]}"
+    #         )
+
+    #     print(f"Active clients: {len(self.active_clients)}")
+
+    #     for c in self.active_clients:
+    #         ap = self.client_connections.get(c, None)
+    #         if ap is not None:
+    #             print(f"Client {c.client_id} -> AP {ap}")
+    
+    # def _get_network_state(self):
+    #     """
+    #     Devuelve un snapshot serializable del estado de la red.
+    #     Pensado para logging y visualización offline.
+    #     """
+    #     return {
+    #         "current_step": self.current_step,
+    #         "ap_channels_idx": self.ap_channels_idx.clone().cpu(),
+    #         "ap_powers_idx": self.ap_powers_idx.clone().cpu(),
+    #         "num_active_clients": self.num_active_clients,
+    #         "client_connections": self.client_connections.clone().cpu(),
+    #     }
 
