@@ -26,7 +26,6 @@ def train():
     data_root = project_root
     
     # 1. Initialize Env
-    # Check if 'buildings' folder exists in project root, otherwise use root (some users put 990 in root)
     if (project_root / "buildings").exists():
         data_root = project_root / "buildings"
     else:
@@ -36,7 +35,18 @@ def train():
     seed = 314
     env = NetworkGraphEnv(data_root=data_root, building_id=990, random_seed=seed)
     
-    hidden_channels = 64 # Increased for Transformer/GAT
+    # ========================================================================
+    # OBTENER MAPEOS DE ÍNDICES A VALORES REALES
+    # ========================================================================
+    available_channels = env.available_channels.cpu().numpy()  # [1, 6, 11]
+    tx_powers_dbm = env.tx_powers_dbm.cpu().numpy()  # [20, 17, 14, 11, 8]
+    
+    print(f"\nMapeo de índices:")
+    print(f"Canales: {available_channels}")
+    print(f"Potencias (dBm): {tx_powers_dbm}\n")
+    # ========================================================================
+    
+    hidden_channels = 64
     num_aps = env.num_aps
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -65,7 +75,7 @@ def train():
     start_time_total = time.time()
     
     for episode in range(num_episodes):
-        obs, _ = env.reset() # Obs is HeteroData
+        obs, _ = env.reset()
         done = False
         total_rate = 0.0
         step_count = 0
@@ -83,7 +93,6 @@ def train():
             data = obs.to(device)
             
             # 1. Forward Pass
-            # Pass x_dict, edge_index_dict, edge_attr_dict
             ch_logits, pwr_logits = model(data.x_dict, data.edge_index_dict, data.edge_attr_dict)
             
             # 2. Action Sampling
@@ -107,48 +116,51 @@ def train():
             next_obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
 
-            # --- Decision Logging (PER STEP, PER AP) ---
+            # ========================================================================
+            # DECISION LOGGING CORREGIDO - CON VALORES REALES
+            # ========================================================================
             for ap_id in range(env.num_aps):
+                ch_idx = int(ch_actions[ap_id].item())
+                pwr_idx = int(pwr_actions[ap_id].item())
+                
+                # Convertir índices a valores reales
+                channel_real = int(available_channels[ch_idx])  # 1, 6, 11
+                power_real = float(tx_powers_dbm[pwr_idx])      # 20, 17, 14, 11, 8
+                
                 decision_logs.append({
                     "episode": episode + 1,
                     "step": step_count,
                     "ap_id": ap_id,
-                    "channel": int(ch_actions[ap_id].item()),
-                    "power_idx": int(pwr_actions[ap_id].item()),
-                    "reward": reward,
+                    "channel": channel_real,          # ← Valor real (1, 6, 11)
+                    "power_dbm": power_real,         # ← Valor real en dBm
+                    "reward": float(reward) if isinstance(reward, (int, float)) else reward.item(),
                     "total_rate": info.get("total_rate", 0),
-                    "fairness": info.get("fairness_index", 0)
+                    "fairness": info.get("fairness_index", 0),
+                    "num_active_clients": info.get("num_active_clients", 0)
                 })
-            
-            # if episode % 20 == 0 and step_count == 0:
-            #     env._log_network_state(episode, step_count)
+            # ========================================================================
             
             rewards.append(reward)
             fairness_scores.append(info.get('fairness_index', 0))
             
-            total_rate += info.get('total_rate', 0) # Track real throughput, not log reward
+            total_rate += info.get('total_rate', 0)
             step_count += 1
             obs = next_obs
 
         
         # --- Update ---
-
-        # 1. Compute returns
         returns = compute_returns(rewards, gamma=0.99)
         G = returns[0].item()
 
-        # 2. Update baseline
         if episode == 0:
             running_reward_mean = G
         else:
             running_reward_mean = (1 - alpha) * running_reward_mean + alpha * G
 
-        # 3. Compute advantages (normalized)
         advantages = returns - running_reward_mean
         if len(advantages) > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # 4. Policy loss por step
         policy_losses = []
         for t in range(len(rewards)):
             lp_ch = log_probs_ch[t].sum()
@@ -157,13 +169,9 @@ def train():
 
         policy_loss = torch.stack(policy_losses).mean()
 
-        # 5. Backpropagation
         optimizer.zero_grad()
         policy_loss.backward()
-
-        # 6. Gradient clipping (OPCIÓN B)
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
         optimizer.step()
         scheduler.step()
         
@@ -197,20 +205,7 @@ def train():
             print(f"Ep {episode+1}: Rew={G:.1f} | Rate={total_rate:.1f} | Fair={np.mean(fairness_scores):.2f} | "
                   f"Loss={policy_loss.item():.2f} | Grad={grad_norm:.2f} | Time={ep_duration:.2f}s")
 
-
-        # --- Snapshot Saving ---
-        if (episode + 1) % 50 == 0 and step_count == 0:
-            snapshot = {
-                "episode": episode + 1,
-                "graph": obs.cpu(),  # HeteroData
-                "ap_channels": env.ap_channels.copy(),
-                "ap_powers": env.ap_powers.copy(),
-                "client_connections": dict(env.client_connections)
-            }
-            torch.save(snapshot, save_dir / f"graph_ep_{episode+1}.pt")
-
-
-    print(f"Training finished in {time.time() - start_time_total:.1f}s")
+    print(f"\nTraining finished in {time.time() - start_time_total:.1f}s")
     
     # Save Final
     torch.save(model.state_dict(), save_dir / "final_model.pt")
@@ -220,10 +215,32 @@ def train():
     df_metrics.to_csv(output_path, index=False)
     print(f"Metrics saved to {output_path}")
 
-    pd.DataFrame(decision_logs).to_csv("decision_log.csv", index=False)
-
+    # ========================================================================
+    # GUARDAR DECISION LOG CORREGIDO
+    # ========================================================================
+    df_decisions = pd.DataFrame(decision_logs)
+    decision_output = "decision_log_corrected.csv"
+    df_decisions.to_csv(decision_output, index=False)
+    print(f"Decision log (with real values) saved to {decision_output}")
+    
+    # Imprimir resumen de acciones
+    print("\n" + "="*60)
+    print("RESUMEN DE ACCIONES (Valores Reales)")
+    print("="*60)
+    print("\nDistribución de Canales:")
+    for ch_val in [1, 6, 11]:
+        count = (df_decisions['channel'] == ch_val).sum()
+        pct = count / len(df_decisions) * 100
+        print(f"  Canal {ch_val:2d}: {count:5d} veces ({pct:5.2f}%)")
+    
+    print("\nDistribución de Potencias:")
+    for pwr_val in tx_powers_dbm:
+        count = (df_decisions['power_dbm'] == pwr_val).sum()
+        pct = count / len(df_decisions) * 100
+        print(f"  {pwr_val:6.2f} dBm: {count:5d} veces ({pct:5.2f}%)")
+    print("="*60 + "\n")
+    # ========================================================================
 
 
 if __name__ == "__main__":
     train()
-

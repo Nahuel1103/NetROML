@@ -1,3 +1,4 @@
+import numpy as np  
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -139,7 +140,6 @@ def plot_snapshot_topology(snapshot_path, output_dir='plots/snapshots'):
         G.add_edge(c_node_id, a_node_id)
         
         # Posición relativa al AP con ruido
-        import numpy as np
         ap_pos = pos_ap[a_node_id]
         noise = np.random.normal(0, 0.3, 2)
         pos_client[c_node_id] = (ap_pos[0] + noise[0], ap_pos[1] + noise[1])

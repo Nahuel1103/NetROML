@@ -7,10 +7,7 @@ class GNN(torch.nn.Module):
     def __init__(self, hidden_channels, num_aps, out_channels_ch=3, out_channels_pwr=4):
         super(GNN, self).__init__()
         self.num_aps = num_aps
-        
-        # Metadata defines the schema: (node_types, edge_types)
-        # We can hardcode specific relations we expect.
-        
+                
         # HeteroConv Layer 1
         # ap->connects->client: Updates Client features based on AP signal (Service)
         # client->connected_to->ap: Updates AP features based on connected Client load
@@ -54,11 +51,7 @@ class GNN(torch.nn.Module):
         if 'client' in x_dict:
              x_dict_out['client'] = self.client_encoder(x_dict['client'])
         
-        # 2. Graph Convolutions
-        # GATv2Conv accepts edge_attr (we should pass it if we had it properly formatted)
-        # For simplicty in HeteroConv, passed directly.
-        # Note: edge_attr needs to match edge types.
-        
+        # 2. Graph Convolutions        
         x_dict_out = self.conv1(x_dict_out, edge_index_dict, edge_attr_dict)
         x_dict_out = {key: F.elu(x) for key, x in x_dict_out.items()}
         

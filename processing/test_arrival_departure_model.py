@@ -3,13 +3,16 @@
 # =========================
 
 from arrival_departure_model import ArrivalDepartureModel, build_client_block_counts
+import pandas as pd
 
 
 if __name__ == "__main__":
 
     csv_path = "../NetROML/buildings/990/building_990_all_months.csv"
 
-    client_block_counts = build_client_block_counts(csv_path)
+    df = pd.read_csv(csv_path)
+
+    client_block_counts = build_client_block_counts(df)
 
     model = ArrivalDepartureModel(
         arrival_rate=3.0,
