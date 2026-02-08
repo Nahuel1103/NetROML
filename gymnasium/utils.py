@@ -1,0 +1,297 @@
+from torch_geometric.nn import LayerNorm, Sequential
+from torch_geometric.nn.conv import MessagePassing
+
+import random
+import pickle
+import numpy as np
+import networkx as nx
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.autograd import grad
+
+import torch_geometric as pyg
+from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader
+from torch_geometric.nn import TAGConv
+from torch_geometric.nn import GCNConv
+import os
+import matplotlib.pyplot as plt
+
+import scipy.io
+
+def transform_matrix(adj_matrix, all = True):
+    """
+    Transforms the adjacency matrix to model interference/channel conditions.
+    
+    Args:
+        adj_matrix (numpy.ndarray): The raw adjacency matrix from the graph.
+        all (bool): If True, use the first logic (all nodes); else use partitioned logic.
+    
+    Returns:
+        H (numpy.ndarray): The transformed Channel Matrix H.
+    """
+    if all:
+        # Logic 1: Define pairs based on strongest connection (Simple matching)
+        
+        # Number of nodes in the graph
+        nodos = adj_matrix.shape[0]
+        lista_parejas = []
+        
+        # Iterate over each node to find its "pair" (likely strongest AP-Client link)
+        for i in range(nodos):
+            # Find the index of the neighbor with highest edge weight (max h)
+            receptor = np.argmax(adj_matrix[i,:])
+            # Get the max value
+            valor_maximo = adj_matrix[i,receptor]
+            transmisor = i
+            # Store tuple: [max_h, transmitter_idx, receiver_idx]
+            elemento = [valor_maximo, transmisor, receptor]
+            lista_parejas.append(elemento)
+
+        # Initialize Channel Matrix H with zeros
+        H = np.zeros_like(adj_matrix)
+
+        # Fill the matrix H
+        for i in range(nodos):
+            for j in range(nodos):
+                if (i == j):
+                    # Diagonal elements: Direct link channel gain (signal strength)
+                    # Uses the max h found for this node as a transmitter
+                    H[i,j] = lista_parejas[i][0]
+                else:
+                    # Off-diagonal: Interference channels
+                    # Find who is the receiver for transmitter 'j'
+                    k = 0
+                    nodo_receptor = 0
+                    for k in range(nodos):
+                        # Search for the pair where 'j' is the transmitter
+                        if (lista_parejas[k][1] == j):
+                            # Identify the receiver node for 'j'
+                            nodo_receptor = lista_parejas[k][2]
+                            if (nodo_receptor == i):
+                                # Special case handling?
+                                H[i,j] = 0.005
+                            else:
+                                # H[i,j] is interference from transmitter 'i' to receiver of 'j'
+                                # Here it takes adj_matrix[i, nodo_receptor]
+                                H[i,j] = adj_matrix[i,nodo_receptor]
+        return H
+    
+    else:
+        # Logic 2: Partitioned logic (Transmitters and Receivers separated)
+        # Not typically used if all=True, but retained for compatibility.
+        
+        num_nodes = adj_matrix.shape[0]
+        nodos = list(np.arange(num_nodes))
+        # Shuffle nodes randomly
+        random.seed(42)
+        random.shuffle(nodos)
+        
+        # Split into Transmitters and Receivers
+        half_nodes= num_nodes // 2
+        nodos_tx = nodos[:half_nodes]
+        nodos_rx = nodos[half_nodes:]
+
+        # Define pairs
+        lista_parejas = []
+        for nodo_tx in nodos_tx:
+            h_canal = []
+            for nodo_rx in nodos_rx:
+                h_canal.append(adj_matrix[nodo_tx,nodo_rx])
+            index_pareja = np.argmax(h_canal)
+            valor_maximo = adj_matrix[nodo_tx, nodos_rx[index_pareja]]
+            elemento = [valor_maximo, nodo_tx, nodos_rx[index_pareja]]
+            lista_parejas.append(elemento)
+
+        # Define matrix H
+        H = np.zeros((num_nodes,num_nodes))
+
+        for i in np.arange(half_nodes):
+            nodo_tx = lista_parejas[i][1]
+            for j in np.arange(half_nodes):
+                if (i == j):
+                    H[i,j] = lista_parejas[i][0]
+                else:
+                    nodo_tx_a_j = nodos_tx[j]
+                    receptor_j = -1
+                    for k in np.arange(half_nodes):
+                        if lista_parejas[k][1] == nodo_tx_a_j:
+                            receptor_j = k
+                    H[i,j] = adj_matrix[nodos_tx[i], nodos_rx[receptor_j]]
+        return H
+    
+def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, building_id=990):
+    """
+    Loads graph data from pickle files and converts them to Tensors.
+    
+    Args:
+        train (bool): Load training data if True, else validation.
+        num_channels (int): Dimensionality for dummy node features.
+        num_features (int): Number of features per node.
+        b5g (bool): Band selection (True=5GHz, False=2.4GHz).
+        building_id (int): Building identifier.
+        
+    Returns:
+        x_tensor (Tensor): Node feature tensors.
+        channel_matrix_tensor (Tensor): Channel matrices for all graphs.
+    """
+    band = ['2_4', '5']
+    # Use path relative to this file to locate the data directory
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, '../graphs/' + str(band[b5g]) + '_' + str(building_id) + '/')
+
+    # Determine file name based on train/val
+    if (train):
+        file_name = 'train_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
+        with open(path + file_name, 'rb') as archivo:
+            graphs = pickle.load(archivo)
+    else:
+        file_name = 'val_' + str(band[b5g]) + '_graphs_' + str(building_id) + '.pkl'
+        with open(path + file_name, 'rb') as archivo:
+            graphs = pickle.load(archivo)
+            
+    x_list = []
+    channel_matrix_list = []
+    # Initialize dummy node features (zeros)
+    x = torch.zeros((num_channels,num_features))
+    
+    for graph in graphs:
+        # Extract adjacency matrix from graph
+        adj_matrix = nx.adjacency_matrix(graph, weight = 'Atenuacion')
+        adj_matrix = adj_matrix.toarray()
+        
+        # Transform into channel matrix H
+        channel_matrix = transform_matrix(adj_matrix, all = True)
+        # Normalize/Scale matrix
+        channel_matrix = channel_matrix/1e-3
+        
+        channel_matrix_list.append(torch.tensor(channel_matrix.T))
+        x_list.append(x)
+
+    # Stack into tensors
+    channel_matrix_tensor = torch.stack(channel_matrix_list)
+    x_tensor = torch.stack(x_list)
+    return x_tensor, channel_matrix_tensor
+
+
+def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, building_id = 990):
+    """
+    Loads SYNTHETIC graph data and converts them to Tensors.
+    Similar to graphs_to_tensor but assumes simple matrix structure in pickle.
+    """
+    band = ['2_4', '5']
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, '../graphs/' + str(band[b5g]) + '_' + str(building_id) + '/')
+    file_name = 'synthetic_graphs.pkl'
+    
+    with open(path + file_name, 'rb') as archivo:
+        graphs = pickle.load(archivo)
+        
+    x_list = []
+    channel_matrix_list = []
+    x = torch.zeros((num_channels,num_features)) 
+    
+    for graph in graphs:
+        # For synthetic, graph is already a matrix/tensor
+        channel_matrix_list.append(torch.tensor(graph))
+        x_list.append(x)
+        
+    channel_matrix_tensor = torch.stack(channel_matrix_list)
+    x_tensor = torch.stack(x_list)
+    return x_tensor, channel_matrix_tensor
+
+def get_gnn_inputs(x_tensor, channel_matrix_tensor):
+    """
+    Converts raw tensors into PyTorch Geometric Data objects.
+    
+    Args:
+        x_tensor: Node features.
+        channel_matrix_tensor: Channel matrices.
+        
+    Returns:
+        input_list (list[Data]): List of PyG Data objects ready for GNN.
+    """
+    input_list = []
+    size = channel_matrix_tensor.shape[0]
+    
+    for i in range(size):
+        x = x_tensor[i,:,:]
+        channel_matrix = channel_matrix_tensor[i,:,:]
+        
+        # Normalize channel matrix for graph structure definition (edge weights)
+        norm = np.linalg.norm(channel_matrix, ord = 2, axis = (0,1))
+        # channel_matrix_norm = channel_matrix / norm # (Original commented out)
+        channel_matrix_norm = channel_matrix # Use raw values
+        
+        # Create sparse edge index from non-zero elements
+        edge_index = channel_matrix_norm.nonzero(as_tuple=False).t()
+        # Edge attributes are the matrix values
+        edge_attr = channel_matrix_norm[edge_index[0], edge_index[1]]
+        edge_attr = edge_attr.to(torch.float)
+        
+        # Create Data object
+        # 'matrix' attribute stores the dense channel matrix for physics calcs
+        input_list.append(Data(matrix=channel_matrix, x=x, edge_index=edge_index, edge_attr=edge_attr))
+    return input_list
+
+def objective_function(rates):
+    """
+    Computes the objective function: Negative Sum Rate (Cost).
+    We want to Maximize Sum Rate, so we Minimize Negative Sum Rate.
+    """
+    sum_rate = -torch.sum(rates, dim=1)
+    return sum_rate
+
+def power_constraint(phi, pmax):
+    """
+    Computes the power constraint violation.
+    Constraint: Sum(phi) <= pmax.
+    Violation = Sum(phi) - pmax.
+    """
+    sum_phi = torch.sum(phi, dim=1)
+    return (sum_phi - pmax)
+
+def mu_update(mu_k, power_constr, eps):
+    """
+    Updates the Lagrangian multiplier (mu_k) primarily used for power constraints.
+    Uses gradient ascent on the dual variable.
+    """
+    mu_k = mu_k.detach()
+    # Update rule: mu = mu + eps * violation
+    mu_k_update = eps * torch.mean(power_constr, dim = 0)
+    mu_k = mu_k + mu_k_update
+    # Project onto non-negative orthant (mu >= 0)
+    mu_k = torch.max(mu_k, torch.tensor(0.0))
+    return mu_k
+
+def get_rates(phi, channel_matrix_batch, sigma):
+    """
+    Calculates the Shannon capacity (rates) for the given power allocation and channels.
+    
+    Args:
+        phi: Power allocation matrix/tensor.
+        channel_matrix_batch: Channel gain matrix.
+        sigma: Noise power.
+        
+    Returns:
+        rates: Calculated rates for each user.
+    """
+    # Squeeze dimensions for broadcasting if needed
+    phi = torch.squeeze(phi, dim = 2)
+    
+    # Calculate Signal (Numerator): Diagonal elements of H * Power
+    numerator = torch.unsqueeze(torch.diagonal(channel_matrix_batch, dim1=1, dim2=2) * phi, dim=2)
+    
+    # Calculate Interference + Signal (Denominator term part 1): H * phi
+    expanded_phi = torch.unsqueeze(phi, dim=2)
+    denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator + sigma
+    # Note: We subtract numerator because Matmul includes Signal + Interference, we want only Interference in denominator. 
+    # Formula: Rate = log(1 + Signal / (Interference + Noise))
+    # Here implemented as log(Signal/Denominator + 1)? Or log(SINR + 1).
+    # denominator calculated here is Interference + Noise.
+    
+    rates = torch.log(numerator / denominator + 1)
+    return rates
