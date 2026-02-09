@@ -111,7 +111,7 @@ class APNetworkEnv(gym.Env):
         #     "mu": spaces.Box(low=0, high=np.inf, shape=(n_APs,), dtype=np.float32)
         # })
         self.observation_space = spaces.Dict({
-            "H": spaces.Box(low=0, high=100, shape=(n_APs, n_APs), dtype=np.float32),
+            "H":  spaces.Box(low=0, high=100, shape=(n_APs, n_APs), dtype=np.float32),
             "mu": spaces.Box(low=0, high=1, shape=(n_APs,), dtype=np.float32)
         })
 
