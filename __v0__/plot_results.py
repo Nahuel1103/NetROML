@@ -27,16 +27,16 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
     
     if train:
         if mark:
-            path = base_results_path + str(band[b5g]) + '_' + str(building_id) + '/gymnasium_results/n_layers' + str(num_layers) + '_order' + str(K) + '/mark_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1)
+            path = base_results_path + str(band[b5g]) + '_' + str(building_id) + '/gymnasium_results/n_layers' + str(num_layers) + '_order' + str(K) + '/__v0__' + '/mark_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1)
         else:
-            path = base_results_path + str(band[b5g]) + '_' + str(building_id) + '/gymnasium_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_train_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1)
+            path = base_results_path + str(band[b5g]) + '_' + str(building_id) + '/gymnasium_results/n_layers' + str(num_layers) + '_order' + str(K) + '/__v0__' + '/ceibal_train_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1)
 
         if (baseline==0):
             path = path + '/'
         else:
             path = path + '_baseline' + str(baseline) + '/'
     else:
-        path = base_results_path + str(band[b5g]) + '_' + str(building_id) + '/gymnasium_results/n_layers' + str(num_layers) + '_order' + str(K) + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1) + '/'
+        path = base_results_path + str(band[b5g]) + '_' + str(building_id) + '/gymnasium_results/n_layers' + str(num_layers) + '_order' + str(K) + '/__v0__' + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1) + '/'
 
 
     if not os.path.exists(path):
