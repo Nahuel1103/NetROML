@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import grad
+from torch.distributions import Categorical
 
 import torch_geometric as pyg
 from torch_geometric.data import Data
@@ -112,17 +113,17 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
 
             # --- GNN FORWARD PASS ---
             # Pass graph data (features, connectivity) through GNN
-            psi = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
+            logits = gnn_model.forward(data.x, data.edge_index, data.edge_attr)
             
-            # Reshape psi to (Batch_Size, Links, Channels+1)
-            psi = psi.view(batch_size, num_links, num_channels+1)
+            # Reshape logits to (Batch_Size, Links, Channels+1)
+            psi = logits.view(batch_size, num_links, num_channels+1)
             # Softmax to get probabilities
-            probs = torch.softmax(psi, dim=-1)  
+            probs = F.softmax(psi, dim=-1)  
             # Sample actions from the distribution
-            dist = torch.distributions.Categorical(probs=probs)  
-            actions = dist.sample()  
+            m = Categorical(probs=probs)  
+            actions = m.sample()  
             # Get log probabilities
-            log_p = dist.log_prob(actions)     
+            log_p = m.log_prob(actions)     
             log_p_sum = log_p.sum(dim=1).unsqueeze(-1) 
             
             phi = torch.zeros(batch_size, num_links, num_channels, device=probs.device)
@@ -169,10 +170,10 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
             loss_mean = torch.mean(loss, dim = 0)
         
             # --- BACKPROPAGATION ---
-            loss_mean.backward()
-            torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=5.0)
-            optimizer.step()
-            optimizer.zero_grad() # Clear gradients for next step
+            optimizer.zero_grad()                                                   # 1. Limpia gradientes primero
+            loss_mean.backward()                                                    # 2. Calcula gradientes
+            torch.nn.utils.clip_grad_norm_(gnn_model.parameters(), max_norm=5.0)    # 3. Clip gradientes
+            optimizer.step()                                                        # 4. Actualiza parámetros
             
             # --- LOGGING ---
             if batch_idx%10 == 0:

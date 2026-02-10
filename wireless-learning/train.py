@@ -161,7 +161,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
-    parser.add_argument('--synthetic', type=int, default=1)
+    parser.add_argument('--synthetic', type=int, default=0)
     
     args = parser.parse_args()
     

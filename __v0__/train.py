@@ -176,9 +176,9 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
             loss_mean = torch.mean(loss, dim = 0)
         
             # --- BACKPROPAGATION ---
-            loss_mean.backward()
-            optimizer.step()
-            optimizer.zero_grad() # Clear gradients for next step
+            optimizer.zero_grad()   # Clear gradients for next step
+            loss_mean.backward()    # Calculate gradients
+            optimizer.step()        # Update weights
 
             # --- LOGGING ---
             if batch_idx%10 == 0:
@@ -228,7 +228,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
-    parser.add_argument('--synthetic', type=int, default=1)
+    parser.add_argument('--synthetic', type=int, default=0)
     
     args = parser.parse_args()
     

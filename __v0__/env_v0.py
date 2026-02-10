@@ -8,8 +8,8 @@ from utils import graphs_to_tensor, get_gnn_inputs, graphs_to_tensor_synthetic, 
 
 class WirelessEnv(gym.Env):
     """
-    Custom Gymnasium Environment for Wireless Network Optimization using GNNs.
-    This environment simulates a wireless network where an agent (GNN) optimizes power allocation.
+    Custom Gymnasium Environment for Wireless Network Resource Allocation using GNNs.
+    This environment simulates a wireless network where an agent (GNN) optimizes power resource allocation.
     """
     metadata = {"render_modes": ["human"]}
 
