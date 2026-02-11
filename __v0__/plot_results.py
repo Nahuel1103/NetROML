@@ -4,40 +4,42 @@ import os
 import torch
 
 
-def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num_layers=5, K=3, batch_size=64, epocs = 100, rn=100, rn1=100, eps=5e-5, mu_lr=1e-4, objective_function_values=[], power_constraint_values=[], loss_values=[],
-                 mu_k_values=[], baseline=0, mark=0, train=True, synthetic=False):
+def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num_layers=5, K=3, batch_size=64, epochs = 100, rn=100, rn1=100, eps=5e-5, mu_lr=1e-4, objective_function_values=[], power_constraint_values=[], loss_values=[],
+                 mu_k_values=[], baseline=0, mark=0, train=True, synthetic=0):
+
     """
-    Function that receives the values for different parameters resulting from some training
-    of the system as lists and plots them. The corresponding plots are saved in the corresponding
-    path, taking into consideration the building_id and the frequency band (2_4, 5) the network
-    is using.
+    Function that plots training results with correct interpretation of probabilities per link.
+    
+    Args:
+        normalized_psi_values: List of arrays with shape [num_links, num_actions]
+                              where num_actions = num_channels + 1 (including "no TX")
     """
 
     band = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
-    mu_lr_str= str(f"{mu_lr:.0e}")
+    mu_lr_str = str(f"{mu_lr:.0e}")
     batch_size_str = str(batch_size)
 
-    # Path adaptation for gymnasium folder structure
-    # We maintain the same structure but under ../results/gymnasium_results/ to differentiate or reuse
-    # The user asked for "new files in gymnasium folder", but results likely should go to a results folder.
-    # I will replicate the path structure relative to the gymnasium folder.
+    # Agrega esto:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    RESULTS_ROOT = os.path.join(BASE_DIR, '..', 'results')  # Ajusta si tu estructura cambia
+
+    # Y reemplaza toda la lógica de creación de 'path' con esto:
     
-    base_results_path = './results/'
-    
+    subfolder = f"{band[b5g]}_{building_id}/gymnasium_results/n_layers{num_layers}_order{K}_synthetic{synthetic}/__v0__"
     if train:
         if mark:
-            path = base_results_path + str(band[b5g]) + '_' + str(building_id) + '/gymnasium_results/n_layers' + str(num_layers) + '_order' + str(K) + '/__v0__' + '/mark_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1)
+            exp_name = f"mark_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}"
         else:
-            path = base_results_path + str(band[b5g]) + '_' + str(building_id) + '/gymnasium_results/n_layers' + str(num_layers) + '_order' + str(K) + '/__v0__' + '/ceibal_train_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1)
-
-        if (baseline==0):
-            path = path + '/'
+            exp_name = f"ceibal_train_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}"
+        if baseline == 0:
+            result_path = os.path.join(RESULTS_ROOT, subfolder, exp_name)
         else:
-            path = path + '_baseline' + str(baseline) + '/'
+            result_path = os.path.join(RESULTS_ROOT, subfolder, exp_name + f"_baseline{baseline}")
     else:
-        path = base_results_path + str(band[b5g]) + '_' + str(building_id) + '/gymnasium_results/n_layers' + str(num_layers) + '_order' + str(K) + '/__v0__' + '/ceibal_val_' + eps_str +  '_' + mu_lr_str + '_' + str(batch_size) + '_' + str(epocs) + '_' + str(rn) + '_' + str(rn1) + '/'
-
+        exp_name = f"ceibal_val_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}"
+        result_path = os.path.join(RESULTS_ROOT, subfolder, exp_name)
+    path = result_path  # El resto de la función puede seguir usando 'path'
 
     if not os.path.exists(path):
         os.makedirs(path)
@@ -151,17 +153,9 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], num
     if isinstance(normalized_psi, torch.Tensor):
         normalized_psi = normalized_psi.detach().numpy()
         
-    normalized_psi_mean = np.mean(normalized_psi, axis=0) # Assuming normalized_psi passed is (Batch, C) or similar? 
-    # Original code: normalized_psi= torch.mean(normalized_psi, dim=0) where normalized_psi was (Batch, C, 1)?
-    # In train.py: normalized_psi is (batch, ...).
-    # Here we just save what we get.
+    normalized_psi_mean = np.mean(normalized_psi, axis=0) 
+
     
     psi_path = os.path.join(path, 'normalized_psi' + '_' + eps_str + '_' +  mu_lr_str + '_' + batch_size_str +'.txt')
-    # np.savetxt(psi_path, normalized_psi_mean, delimiter=',', fmt='%.4f') 
-    # Commented out to avoid shape errors without precise context, but matching original logic:
-    
-    # Original:
-    # normalized_psi= torch.mean(normalized_psi, dim=0)
-    # normalized_psi_array = normalized_psi.detach().numpy()
-    # np.savetxt(...)
+
     return path

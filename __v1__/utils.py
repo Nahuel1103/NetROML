@@ -123,13 +123,13 @@ def transform_matrix(adj_matrix, all = True):
                     H[i,j] = adj_matrix[nodos_tx[i], nodos_rx[receptor_j]]
         return H
     
-def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, building_id=990):
+def graphs_to_tensor(train=True, num_links=5, num_features=1, b5g=False, building_id=990):
     """
     Loads graph data from pickle files and converts them to Tensors.
     
     Args:
         train (bool): Load training data if True, else validation.
-        num_channels (int): Dimensionality for dummy node features.
+        num_links (int): Number of links (pairs) in the graph.
         num_features (int): Number of features per node.
         b5g (bool): Band selection (True=5GHz, False=2.4GHz).
         building_id (int): Building identifier.
@@ -156,7 +156,7 @@ def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, buil
     x_list = []
     channel_matrix_list = []
     # Initialize dummy node features (zeros)
-    x = torch.zeros((num_channels,num_features))
+    x = torch.zeros((num_links,num_features))
     
     for graph in graphs:
         # Extract adjacency matrix from graph
@@ -177,7 +177,7 @@ def graphs_to_tensor(train=True, num_channels=5, num_features=1, b5g=False, buil
     return x_tensor, channel_matrix_tensor
 
 
-def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, building_id = 990):
+def graphs_to_tensor_synthetic(num_links, num_features = 1, b5g = False, building_id = 990):
     """
     Loads SYNTHETIC graph data and converts them to Tensors.
     Similar to graphs_to_tensor but assumes simple matrix structure in pickle.
@@ -192,7 +192,7 @@ def graphs_to_tensor_synthetic(num_channels, num_features = 1, b5g = False, buil
         
     x_list = []
     channel_matrix_list = []
-    x = torch.zeros((num_channels,num_features)) 
+    x = torch.zeros((num_links,num_features)) 
     
     for graph in graphs:
         # For synthetic, graph is already a matrix/tensor
@@ -293,7 +293,7 @@ def get_rates(phi, channel_matrix_batch, sigma=1e-4, p0=0.01):
         
         # INTERFERENCIA: Sumar solo los que están en este canal (ch)
         # H @ p_ch nos da la suma ponderada de potencias de todos los que transmiten en 'ch'
-        total_received_power = torch.matmul(channel_matrix_batch, p_ch.unsqueeze(-1)).squeeze(-1)
+        total_received_power = torch.matmul(channel_matrix_batch.float(), p_ch.float().unsqueeze(-1)).squeeze(-1)
         
         # Restamos la señal propia para que sea solo interferencia
         interference_same_channel = total_received_power - signal

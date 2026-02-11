@@ -8,7 +8,7 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
                 num_layers=5, K=3, batch_size=64, epochs=100, rn=100, rn1=100, eps=5e-5, 
                 mu_lr=1e-4, objective_function_values=[], power_constraint_values=[], 
                 loss_values=[], mu_k_values=[], baseline=0, mark=0, train=True, num_channels=None,
-                num_power_levels=None, power_levels=None):
+                num_power_levels=None, power_levels=None, synthetic=0):
     """
     Function that plots training results with correct interpretation of probabilities per link.
     
@@ -28,7 +28,7 @@ def plot_results(building_id, b5g, normalized_psi, normalized_psi_values=[], pow
 
     # Y reemplaza toda la lógica de creación de 'path' con esto:
     
-    subfolder = f"{band[b5g]}_{building_id}/gymnasium_results/n_layers{num_layers}_order{K}/__v1__"
+    subfolder = f"{band[b5g]}_{building_id}/gymnasium_results/n_layers{num_layers}_order{K}_synthetic{synthetic}/__v1__"
     if train:
         if mark:
             exp_name = f"mark_{eps_str}_{mu_lr_str}_{batch_size}_{epochs}_{rn}_{rn1}"

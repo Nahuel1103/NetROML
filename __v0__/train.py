@@ -28,7 +28,7 @@ from utils import mu_update
 # Env import - Importing our custom Gymnasium environment
 from env_v0 import WirelessEnv
 
-def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=1, epocs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
+def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=1, epochs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
     """
     Main training execution function.
     
@@ -39,7 +39,7 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
         num_layers (int): Number of GNN layers.
         K (int): Order of Chebyshev polynomials / hops in TAGConv.
         batch_size (int): Size of training batches.
-        epocs (int): Number of training epochs.
+        epochs (int): Number of training epochs.
         eps (float): Step size for Lagrangian multiplier update.
         mu_lr (float): Learning rate for the Optimizer (Adam).
         synthetic (int): 1 for synthetic data, 0 for real data.
@@ -62,7 +62,7 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
     # Initialize Lagrangian Multiplier (mu_k)
     # Used to enforce power constraints via primal-dual method
     mu_k = torch.ones((1,1), requires_grad = False)
-    epocs = epocs
+    epochs = epochs
 
     # Parameters for Power Calculation
     pmax = num_channels # Max power budget
@@ -100,8 +100,8 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
     normalized_psi_values = []
     
     # 5. Training Loop
-    for epoc in range(epocs):
-        print("Epoc number: {}".format(epoc))
+    for epoch in range(epochs):
+        print("epoch number: {}".format(epoch))
         
         # Iterate over batches from the dataloader
         for batch_idx, data in enumerate(dataloader):
@@ -193,12 +193,12 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
             print(name, param.data)
     
     # 6. Plotting Results
-    path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=normalized_psi, normalized_psi_values=normalized_psi_values, num_layers=num_layers, K=K, batch_size=batch_size, epocs=epocs, rn=rn, rn1=rn1, eps=eps, mu_lr=mu_lr,
+    path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=normalized_psi, normalized_psi_values=normalized_psi_values, num_layers=num_layers, K=K, batch_size=batch_size, epochs=epochs, rn=rn, rn1=rn1, eps=eps, mu_lr=mu_lr,
                     objective_function_values=objective_function_values, power_constraint_values=power_constraint_values,
                     loss_values=loss_values, mu_k_values=mu_k_values, baseline=False, synthetic=synthetic, train=True)
     
     # Save raw objective values
-    file_name = path + 'objective_function_values_train_' + str(epocs) + '.pkl'
+    file_name = path + 'objective_function_values_train_' + str(epochs) + '.pkl'
     with open(file_name, 'wb') as archivo:
         pickle.dump(objective_function_values, archivo)
 
@@ -224,11 +224,11 @@ if __name__ == '__main__':
     parser.add_argument('--num_channels', type=int, default=5)
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epocs', type=int, default=150)
+    parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
-    parser.add_argument('--synthetic', type=int, default=0)
+    parser.add_argument('--synthetic', type=int, default=1)
     
     args = parser.parse_args()
     
@@ -237,12 +237,12 @@ if __name__ == '__main__':
     print(f'num_channels: {args.num_channels}')
     print(f'num_layers: {args.num_layers}')
     print(f'k: {args.k}')
-    print(f'epocs: {args.epocs}')
+    print(f'epochs: {args.epochs}')
     print(f'batch_size: {args.batch_size}')
     print(f'eps: {args.eps}')
     print(f'mu_lr: {args.mu_lr}')
     print(f'synthetic: {args.synthetic}')
     
     # Run the training loop
-    run(building_id=args.building_id, b5g=args.b5g, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epocs=args.epocs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
+    run(building_id=args.building_id, b5g=args.b5g, num_channels=args.num_channels, num_layers=args.num_layers, K=args.k, batch_size=args.batch_size, epochs=args.epochs, eps=args.eps, mu_lr=args.mu_lr, synthetic=args.synthetic, rn=rn, rn1=rn1)
     print('Seeds: {} and {}'.format(rn, rn1))

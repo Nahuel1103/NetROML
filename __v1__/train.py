@@ -191,7 +191,7 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
             print(name, param.data)
     
     # 6. Plotting Results
-    path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=probs, normalized_psi_values=probs_values, num_layers=num_layers, K=K, batch_size=batch_size, epochs=epochs, rn=rn, rn1=rn1, eps=eps, mu_lr=mu_lr, objective_function_values=objective_function_values, power_constraint_values=power_constraint_values, loss_values=loss_values, mu_k_values=mu_k_values, baseline=False, train=True)
+    path = plot_results(building_id=building_id, b5g=b5g, normalized_psi=probs, normalized_psi_values=probs_values, num_layers=num_layers, K=K, batch_size=batch_size, epochs=epochs, rn=rn, rn1=rn1, eps=eps, mu_lr=mu_lr, objective_function_values=objective_function_values, power_constraint_values=power_constraint_values, loss_values=loss_values, mu_k_values=mu_k_values, baseline=False, train=True, synthetic=synthetic)
     
     # Save raw objective values
     file_name = path + 'objective_function_values_train_' + str(epochs) + '.pkl'
@@ -221,7 +221,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_layers', type=int, default=5)
     parser.add_argument('--k', type=int, default=3)
     parser.add_argument('--epochs', type=int, default=150)
-    parser.add_argument('--batch_size', type=int, default=64)
+    parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
     parser.add_argument('--synthetic', type=int, default=1)

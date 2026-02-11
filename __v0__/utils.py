@@ -279,7 +279,7 @@ def get_rates(phi, channel_matrix_batch, sigma):
     Returns:
         rates: Calculated rates for each user.
     """
-    # Squeeze dimensions for broadcasting if needed
+
     phi = torch.squeeze(phi, dim = 2)
     
     # Calculate Signal (Numerator): Diagonal elements of H * Power
@@ -288,10 +288,6 @@ def get_rates(phi, channel_matrix_batch, sigma):
     # Calculate Interference + Signal (Denominator term part 1): H * phi
     expanded_phi = torch.unsqueeze(phi, dim=2)
     denominator = torch.matmul(channel_matrix_batch.float(), expanded_phi.float()) - numerator + sigma
-    # Note: We subtract numerator because Matmul includes Signal + Interference, we want only Interference in denominator. 
-    # Formula: Rate = log(1 + Signal / (Interference + Noise))
-    # Here implemented as log(Signal/Denominator + 1)? Or log(SINR + 1).
-    # denominator calculated here is Interference + Noise.
     
     rates = torch.log(numerator / denominator + 1)
     return rates
