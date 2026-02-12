@@ -1,0 +1,57 @@
+======================================================================
+ANÁLISIS DE POLÍTICA FINAL
+======================================================================
+
+
+Link 0:
+  Acción preferida: Canal 0 (p=0.9922)
+  Distribución completa:
+    No TX   : 0.0000 
+    Canal 0 : 0.9922 █████████████████████████████████████████████████
+    Canal 1 : 0.0000 
+    Canal 2 : 0.0078 
+
+Link 1:
+  Acción preferida: Canal 0 (p=0.9922)
+  Distribución completa:
+    No TX   : 0.0000 
+    Canal 0 : 0.9922 █████████████████████████████████████████████████
+    Canal 1 : 0.0000 
+    Canal 2 : 0.0078 
+
+Link 2:
+  Acción preferida: Canal 2 (p=0.9844)
+  Distribución completa:
+    No TX   : 0.0000 
+    Canal 0 : 0.0156 
+    Canal 1 : 0.0000 
+    Canal 2 : 0.9844 █████████████████████████████████████████████████
+
+Link 3:
+  Acción preferida: Canal 0 (p=0.9922)
+  Distribución completa:
+    No TX   : 0.0000 
+    Canal 0 : 0.9922 █████████████████████████████████████████████████
+    Canal 1 : 0.0000 
+    Canal 2 : 0.0078 
+
+Link 4:
+  Acción preferida: Canal 0 (p=1.0000)
+  Distribución completa:
+    No TX   : 0.0000 
+    Canal 0 : 1.0000 ██████████████████████████████████████████████████
+    Canal 1 : 0.0000 
+    Canal 2 : 0.0000 
+
+----------------------------------------------------------------------
+ANÁLISIS DE CONFLICTOS DE CANAL
+----------------------------------------------------------------------
+  ⚠ Canal 0: Usado por 4 links (INTERFERENCIA)
+      Link 0 (p=0.992)
+      Link 1 (p=0.992)
+      Link 3 (p=0.992)
+      Link 4 (p=1.000)
+  - Canal 1: No usado
+  ✓ Canal 2: Usado solo por Link 2 (p=0.984)
+
+======================================================================

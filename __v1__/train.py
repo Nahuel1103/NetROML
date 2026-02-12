@@ -52,7 +52,7 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
     mu_lr_str= str(f"{mu_lr:.0e}")
 
     # 1. Initialize Environment
-    env = WirelessEnv(building_id=building_id, b5g=b5g, num_links=num_links, num_features=1, synthetic=synthetic, train=True)
+    env = WirelessEnv(building_id=building_id, b5g=b5g, num_links=num_links, num_features=1, sigma=1e-4, synthetic=synthetic, train=True)
     
     # 2. Setup Data Loader
     dataloader = DataLoader(env.dataset, batch_size=batch_size, shuffle=True, drop_last=True)
@@ -68,8 +68,6 @@ def run(building_id=990, b5g=False, num_links=5, num_layers=5, K=3, batch_size=6
     pmax_per_ap = max_antenna_power_mw*0.8* torch.ones((num_links,))
 
     num_channels = 3
-
-    sigma = 1e-4 # Noise
 
     # GNN Architecture Dimensions
     input_dim = 1
@@ -219,12 +217,12 @@ if __name__ == '__main__':
     parser.add_argument('--b5g', type=int, default=0)
     parser.add_argument('--num_links', type=int, default=5)
     parser.add_argument('--num_layers', type=int, default=5)
-    parser.add_argument('--k', type=int, default=3)
-    parser.add_argument('--epochs', type=int, default=150)
-    parser.add_argument('--batch_size', type=int, default=1)
+    parser.add_argument('--k', type=int, default=5)
+    parser.add_argument('--epochs', type=int, default=300)
+    parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
-    parser.add_argument('--synthetic', type=int, default=1)
+    parser.add_argument('--synthetic', type=int, default=0)
     
     args = parser.parse_args()
     

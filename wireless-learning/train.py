@@ -34,7 +34,7 @@ from utils import mu_update
 from utils import graphs_to_tensor_synthetic
 
 
-def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
+def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=64, epocs=100, eps=5e-5, mu_lr=1e-4, synthetic=False, rn=100, rn1=100):   
 
     banda = ['2_4', '5']
     eps_str = str(f"{eps:.0e}")
@@ -161,7 +161,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
-    parser.add_argument('--synthetic', type=int, default=0)
+    parser.add_argument('--synthetic', type=int, default=True)
     
     args = parser.parse_args()
     

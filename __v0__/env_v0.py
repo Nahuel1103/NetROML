@@ -8,12 +8,12 @@ from utils import graphs_to_tensor, get_gnn_inputs, graphs_to_tensor_synthetic, 
 
 class WirelessEnv(gym.Env):
     """
-    Custom Gymnasium Environment for Wireless Network Resource Allocation using GNNs.
-    This environment simulates a wireless network where an agent (GNN) optimizes power resource allocation.
+    Custom Gymnasium Environment for Resource Allocation in Wireless Networks using Graph Neural Networks (GNN).
+    This environment simulates a wireless network where an agent (GNN) optimizes power radio resource allocation.
     """
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, building_id=990, b5g=False, num_channels=5, num_features=1, synthetic=False, train=True):
+    def __init__(self, building_id=990, b5g=False, num_channels=5, num_features=1, synthetic=False):
         """
         Initialize the Wireless Environment.
         
@@ -36,13 +36,12 @@ class WirelessEnv(gym.Env):
         
         # Load Data based on the configuration
         if synthetic:
-            # Load synthetic graph data using utility function specific for synthetic datasets
+            # Load synthetic datasets
             x_tensor, channel_matrix_tensor = graphs_to_tensor_synthetic(num_channels, num_features=num_features, b5g=b5g, building_id=building_id)
-            # Process raw tensors into GNN-ready Data objects (list of PyG Data objects)
+            # Process raw tensors into GNN-ready Data object
             self.dataset = get_gnn_inputs(x_tensor, channel_matrix_tensor)
-            if train:
-                # Limit dataset to 7000 samples for training as per original implementation
-                self.dataset = self.dataset[:7000] 
+            # Limit to 7000 samples
+            self.dataset = self.dataset[:7000] 
         else:
             # Load real-world graph data
             x_tensor, channel_matrix_tensor = graphs_to_tensor(train=train, num_channels=num_channels, num_features=num_features, b5g=b5g, building_id=building_id)
@@ -53,14 +52,10 @@ class WirelessEnv(gym.Env):
         self.num_samples = len(self.dataset)
         self.current_idx = 0
         self.indices = np.arange(self.num_samples)
-        
-        # Shuffle data indices if we are in training mode
-        if self.train:
-            np.random.shuffle(self.indices)
             
         # Define Action and Observation Spaces
         # Note: Since graph sizes vary, standard Box/Discrete spaces are hard to define strictly.
-        # We leave them as None or placeholder for now.
+        # We leave them as None.
         self.action_space = None 
         self.observation_space = None
 
@@ -81,9 +76,6 @@ class WirelessEnv(gym.Env):
         # Check if we reached end of dataset, assuming cyclic iterator behavior
         if self.current_idx >= self.num_samples:
              self.current_idx = 0
-             if self.train:
-                 # Reshuffle for the next pass
-                 np.random.shuffle(self.indices)
         
         # Select the next graph using the shuffled indices
         data_idx = self.indices[self.current_idx]
@@ -122,9 +114,8 @@ class WirelessEnv(gym.Env):
         if phi.dim() == 2:
              phi = phi.unsqueeze(0) # Add batch dim -> (1, N, C)
         
-        mat = channel_matrix
-        if mat.dim() == 2:
-            mat = mat.unsqueeze(0) # Add batch dim -> (1, N, N)
+        if channel_matrix.dim() == 2:
+            channel_matrix = channel_matrix.unsqueeze(0) # Add batch dim -> (1, N, N)
             
         # Handling Batched Input from DataLoader
         # If self.data is part of a Batch (loaded via PyG DataLoader outside), 
@@ -134,18 +125,19 @@ class WirelessEnv(gym.Env):
              # Assume logic for unstacking/reshaping matrix for batched calculation
              batch_size = phi.shape[0]
              N = self.num_channels # Using num_channels argument as Node count based on original code usage
-             mat = mat.view(batch_size, N, N) # Reshape flat matrix list to (Batch, N, N)
+             channel_matrix = channel_matrix.view(batch_size, N, N) # Reshape flat matrix list to (Batch, N, N)
 
-        # Calculate Rates using the utility function
-        # rates shape: (Batch, N, 1) or similar
-        rates = get_rates(phi, mat, self.sigma)
-        
+
         # Calculate Power Constraint Violation
         power_constr = power_constraint(phi, self.pmax)
+        power_constr_mean = torch.mean(power_constr, dim = 0)
+
+        # Calculate Rates
+        rates = get_rates(phi, channel_matrix, self.sigma)
         
         # Calculate Objective Function (Sum Rate)
-        # Note: objective_function returns negative sum rate (-Rate)
         sum_rate = objective_function(rates) 
+        sum_rate_mean = torch.mean(sum_rate, dim = 0)
         
         # Define Reward: We want to Maximize Rate, so Reward = Positive Sum Rate.
         # Since sum_rate from util is Negative, Reward = -sum_rate
@@ -153,7 +145,7 @@ class WirelessEnv(gym.Env):
         
         # Construct Info Dictionary with detailed metrics
         info = {
-            'power_constr': power_constr, # Constraint violation
+            'power_constr_mean': power_constr_mean, # Mean Constraint violation
             'rates': rates,               # Individual user rates
             'sum_rate': -sum_rate         # Total system rate (positive)
         }
@@ -163,10 +155,3 @@ class WirelessEnv(gym.Env):
         truncated = False
         
         return self.data, reward, terminated, truncated, info
-
-    def set_dataloader(self, batch_size=1):
-        """
-        Placeholder for potentially managing internal dataloaders.
-        Currently unused as DataLoader is managed externally in train.py.
-        """
-        pass

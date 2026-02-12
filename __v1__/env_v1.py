@@ -13,7 +13,15 @@ class WirelessEnv(gym.Env):
     """
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, building_id=990, b5g=False, num_links=5, num_features=1, synthetic=False, train=True):
+    def __init__(self, 
+                building_id=990, 
+                b5g=False, 
+                num_links=5, 
+                num_features=1, 
+                sigma=1e-4,
+                synthetic=False, 
+                train=True
+                ):
         """
         Initialize the Wireless Environment.
         
@@ -68,7 +76,7 @@ class WirelessEnv(gym.Env):
         max_antenna_power_dbm = 6
         self.max_antenna_power_mw = 10 ** (max_antenna_power_dbm / 10)
         self.pmax_per_ap = self.max_antenna_power_mw*0.8* torch.ones((num_links,))
-        self.sigma = 1e-4        # Noise power level
+        self.sigma = sigma        # Noise power level
 
     def reset(self, seed=None, options=None):
         """
@@ -98,7 +106,6 @@ class WirelessEnv(gym.Env):
     def step(self, action):
         """
         Execute one action step in the environment.
-        In this Contextual Bandit formulation, one step completes the episode for the given graph.
         
         Args:
             action (Tensor): The power allocation 'phi'. 

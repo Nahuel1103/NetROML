@@ -28,7 +28,7 @@ from utils import mu_update
 # Env import - Importing our custom Gymnasium environment
 from env_v0 import WirelessEnv
 
-def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=1, epochs=100, eps=5e-5, mu_lr=1e-4, synthetic=1, rn=100, rn1=100):   
+def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_size=1, epochs=100, eps=5e-5, mu_lr=1e-4, synthetic=False, rn=100, rn1=100):   
     """
     Main training execution function.
     
@@ -52,7 +52,7 @@ def run(building_id=990, b5g=False, num_channels=5, num_layers=5, K=3, batch_siz
 
     # 1. Initialize Environment
     # We create the WirelessEnv instance which prepares the dataset.
-    env = WirelessEnv(building_id=building_id, b5g=b5g, num_channels=num_channels, num_features=1, synthetic=synthetic, train=True)
+    env = WirelessEnv(building_id=building_id, b5g=b5g, num_channels=num_channels, num_features=1, synthetic=synthetic)
     
     # 2. Setup Data Loader
     # We use the dataset from the environment to create a PyTorch Geometric DataLoader.
@@ -228,7 +228,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--eps', type=float, default=5e-4)
     parser.add_argument('--mu_lr', type=float, default=5e-4)
-    parser.add_argument('--synthetic', type=int, default=1)
+    parser.add_argument('--synthetic', type=int, default=True)
     
     args = parser.parse_args()
     
